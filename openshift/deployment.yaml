@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: template-mcp-server
+  labels:
+    app: template-mcp-server
+    app.kubernetes.io/name: template-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: template-mcp-server
+  template:
+    metadata:
+      labels:
+        app: template-mcp-server
+    spec:
+      containers:
+      - name: mcp-server
+        image: template-mcp-server:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        - name: SERVER_PORT
+          value: "8000"
+        - name: TRANSPORT_MODE
+          value: "http"
+        - name: LOG_LEVEL
+          value: "INFO"
+        envFrom:
+        - configMapRef:
+            name: mcp-server-config
+            optional: true
+        args:
+        - "--transport"
+        - "http"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8000"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      restartPolicy: Always 

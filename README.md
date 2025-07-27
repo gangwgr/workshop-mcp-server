@@ -1,93 +1,313 @@
-# template-mcp-server
+# Template MCP Server
 
+A modern, production-ready template for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers using [FastMCP](https://github.com/jlowin/fastmcp).
 
+## ✨ Features
 
-## Getting started
+- 🐍 **Python 3.12** - Modern Python with latest features
+- ⚡ **UV Package Manager** - Ultra-fast dependency management
+- 🔧 **Multiple Entry Points** - Module, script, and development execution
+- 🐨 **Container Ready** - Buildah/Podman support with Red Hat UBI
+- 🚀 **CI/CD Pipeline** - GitLab CI with automated testing
+- 📝 **Code Quality** - Pre-commit hooks with ruff, mypy, and pydocstyle
+- 🔒 **Security First** - Non-root containers and dependency scanning
+- 📚 **Well Documented** - Comprehensive documentation and examples
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 🚀 Quick Start
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### Prerequisites
 
-## Add your files
+- Python 3.12+
+- [UV](https://docs.astral.sh/uv/) package manager
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+### Installation
+
+1. **Clone this template:**
+   ```bash
+   git clone <this-repo>
+   cd template-mcp-server
+   ```
+
+2. **Install with UV:**
+   ```bash
+   uv pip install -e .
+   ```
+
+3. **Set up development environment:**
+   ```bash
+   # Copy environment template
+   cp .env.template .env
+   # Edit .env with your settings
+   
+   # Install pre-commit hooks
+   pre-commit install
+   ```
+
+## 🎯 Usage
+
+### Multiple Ways to Run
+
+```bash
+# 1. As an installed module (recommended)
+python -m src
+
+# 2. Using script entry points
+mcp-server
+# or
+template-mcp-server
+
+# 3. Direct execution (development)
+python src/main.py
+
+# 4. With custom arguments
+python -m src --transport http --port 8001 --host 0.0.0.0
+```
+
+### Transport Modes
+
+**STDIO Mode** (default - for MCP clients):
+```bash
+python -m src --transport stdio
+```
+
+**HTTP Mode** (for testing/web integration):
+```bash
+python -m src --transport http --port 8000
+```
+
+## 📁 Project Structure
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server.git
-git branch -M main
-git push -uf origin main
+template-mcp-server/
+├── src/                        # Main application package
+│   ├── __init__.py            # Package version and metadata
+│   ├── __main__.py            # Module entry point
+│   ├── main.py                # Development entry point
+│   ├── server.py              # FastMCP server with tools
+│   └── config/                # Configuration modules
+├── tests/                      # Test suite
+├── .env.template              # Environment variables template
+├── .pre-commit-config.yaml    # Code quality hooks
+├── .gitlab-ci.yml             # CI/CD pipeline
+├── Containerfile              # Container build instructions
+├── .containerignore           # Container build exclusions
+├── .gitignore                 # Git exclusions
+└── pyproject.toml             # Project configuration
 ```
 
-## Integrate with your tools
+## 🛠️ Example Tools Included
 
-- [ ] [Set up project integrations](https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server/-/settings/integrations)
+This template provides **5 example tools** demonstrating different patterns:
 
-## Collaborate with your team
+- **`hello_world()`** - Simple greeting tool
+- **`calculate_sum()`** - Math operations with Pydantic validation
+- **`echo_message()`** - Message processing with metadata
+- **`get_server_info()`** - Server introspection and health
+- **`list_files()`** - Async file system operations
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+Plus **resources** and **prompts** examples for complete MCP functionality.
 
-## Test and Deploy
+## ⚙️ Configuration
 
-Use the built-in continuous integration in GitLab.
+### Environment Variables
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Copy `.env.template` to `.env` and customize:
 
-***
+```bash
+# Server Configuration
+SERVER_NAME="FastMCP Template Server"
+SERVER_HOST="localhost"
+SERVER_PORT="8000"
 
-# Editing this README
+# Transport Mode (stdio, http)
+TRANSPORT_MODE="stdio"
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+# Logging Configuration
+LOG_LEVEL="INFO"
 
-## Suggestions for a good README
+# Development Settings
+DEBUG="false"
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+# Add your custom variables here
+CUSTOM_API_KEY="your_api_key_here"
+```
 
-## Name
-Choose a self-explaining name for your project.
+### Development Configuration
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+All tools support environment variable configuration with automatic loading.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 🏗️ Development
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### Code Quality
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+This template includes comprehensive code quality tools:
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+# Run all pre-commit hooks
+pre-commit run --all-files
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+# Format and lint
+ruff check --fix src/ tests/
+ruff format src/ tests/
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+# Type checking
+mypy src/
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+# Run tests
+pytest tests/ -v
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### Adding New Tools
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+1. **Create your tool in `src/server.py`:**
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```python
+from pydantic import BaseModel
 
-## License
-For open source projects, say how it is licensed.
+class MyToolInput(BaseModel):
+    name: str
+    count: int = 1
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+@mcp.tool()
+def my_custom_tool(params: MyToolInput) -> Dict[str, Any]:
+    """Description of what this tool does."""
+    return {
+        "result": f"Processed {params.name} {params.count} times",
+        "success": True
+    }
+```
+
+2. **Add tests in `tests/`:**
+
+```python
+def test_my_custom_tool():
+    result = my_custom_tool(MyToolInput(name="test", count=3))
+    assert result["success"] is True
+```
+
+3. **Run quality checks:**
+
+```bash
+pre-commit run --all-files
+pytest
+```
+
+## 🐨 Container Deployment
+
+### Building with Buildah/Podman
+
+```bash
+# Build the container
+buildah build -t template-mcp-server .
+
+# Or with Podman
+podman build -t template-mcp-server .
+```
+
+### Running Containers
+
+**STDIO mode** (for MCP clients):
+```bash
+podman run -it template-mcp-server
+```
+
+**HTTP mode** (for web services):
+```bash
+podman run -p 8000:8000 template-mcp-server \
+  python -m src --transport http --host 0.0.0.0
+```
+
+**Production deployment:**
+```bash
+podman run -d --name mcp-server \
+  --restart=unless-stopped \
+  -p 8000:8000 \
+  -e LOG_LEVEL="DEBUG" \
+  template-mcp-server
+```
+
+### Container Features
+
+- ✅ **Red Hat UBI Python 3.12** base image
+- ✅ **Non-root user** for security
+- ✅ **Health checks** built-in
+- ✅ **Environment variable** configuration
+- ✅ **Optimized layers** for fast builds
+
+## 🚀 CI/CD Pipeline
+
+Automated GitLab CI pipeline includes:
+
+- **Code Quality**: Pre-commit hooks, linting, formatting
+- **Testing**: Comprehensive test suite with pytest
+- **Security**: Dependency scanning and validation
+- **Performance**: Optimized builds with UV and caching
+
+Pipeline runs on:
+- Merge requests
+- Main branch pushes
+- Manual triggers
+
+## 📚 API Reference
+
+### Tool Categories
+
+**Core Tools:**
+- `hello_world()` - Basic greeting
+- `get_server_info()` - Server metadata and health
+
+**Data Processing:**
+- `calculate_sum(a, b)` - Mathematical operations
+- `echo_message(message)` - Message processing
+
+**File Operations:**
+- `list_files(path)` - Directory listing with metadata
+
+### Resources
+
+- `file://{path}` - Read file contents
+
+### Prompts
+
+- `code_review_prompt(code, language)` - Generate code review prompts
+
+## 🔧 Customization
+
+### 1. Replace Example Tools
+
+Update `src/server.py` with your specific tools and business logic.
+
+### 2. Configure Settings
+
+Modify `src/config/` for your application-specific configuration.
+
+### 3. Update Metadata
+
+Edit `pyproject.toml` and `src/__init__.py` with your project details.
+
+### 4. Customize Container
+
+Update `Containerfile` for your deployment requirements.
+
+## 📖 Resources
+
+- [FastMCP Documentation](https://github.com/jlowin/fastmcp)
+- [MCP Specification](https://modelcontextprotocol.io/)
+- [UV Package Manager](https://docs.astral.sh/uv/)
+- [Red Hat UBI Images](https://catalog.redhat.com/software/containers/ubi9/python-312/)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run quality checks: `pre-commit run --all-files`
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+**Built with ❤️ using FastMCP, Python 3.12, and modern development practices.**

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-server-config
+  labels:
+    app: template-mcp-server
+    app.kubernetes.io/name: template-mcp-server
+    app.kubernetes.io/component: mcp-server
+data:
+  SERVER_NAME: "FastMCP Template Server"
+  DEBUG: "false"
+  # Add your custom environment variables here
+  # CUSTOM_API_KEY: "your_api_key_here"
+  # CUSTOM_DATABASE_URL: "your_database_url_here" 
