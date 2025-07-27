@@ -182,3 +182,4 @@ git_commands.sh
 build.log
 *.tmp
 *.bak
+.idea

@@ -60,20 +60,13 @@ class Settings(BaseSettings):
             "example": "/path/to/cert.pem",
         },
     )
-    SNOWFLAKE_ACCOUNT: str = Field(
-        default=None,
+    MCP_TRANSPORT_PROTOCOL: str = Field(
+        default="streamable-http",
         json_schema_extra={
-            "env": "SNOWFLAKE_ACCOUNT",
-            "description": "Snowflake account identifier",
-            "example": "msb29601",
-        },
-    )
-    SNOWFLAKE_USER: str = Field(
-        default=None,
-        json_schema_extra={
-            "env": "SNOWFLAKE_USER",
-            "description": "Snowflake user",
-            "example": "TUHSHARM",
+            "env": "MCP_TRANSPORT_PROTOCOL",
+            "description": "Transport protocol for the MCP server",
+            "example": "streamable-http",
+            "enum": ["stdio", "streamable-http", "http"],
         },
     )
     PYTHON_LOG_LEVEL: str = Field(
@@ -110,6 +103,13 @@ def validate_config(settings: Settings) -> None:
     if settings.PYTHON_LOG_LEVEL.upper() not in valid_log_levels:
         raise ValueError(
             f"PYTHON_LOG_LEVEL must be one of {valid_log_levels}, got {settings.PYTHON_LOG_LEVEL}"
+        )
+
+    # Validate transport protocol
+    valid_transport_protocols = ["stdio", "streamable-http", "http"]
+    if settings.MCP_TRANSPORT_PROTOCOL not in valid_transport_protocols:
+        raise ValueError(
+            f"MCP_TRANSPORT_PROTOCOL must be one of {valid_transport_protocols}, got {settings.MCP_TRANSPORT_PROTOCOL}"
         )
 
 

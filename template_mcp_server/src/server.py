@@ -107,7 +107,7 @@ class TemplateMCPServer:
                     ssl_certfile=settings.MCP_SSL_CERTFILE,
                 )
             await self.mcp.run_http_async(
-                transport="sse",
+                transport=settings.MCP_TRANSPORT_PROTOCOL,
                 host=settings.MCP_HOST,
                 port=settings.MCP_PORT,
                 uvicorn_config=uvicorn_config if uvicorn_config else None,
