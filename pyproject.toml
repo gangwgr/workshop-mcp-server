@@ -1,79 +1,111 @@
-[project]
-name = "template-mcp-server"
-dynamic = ["version"]
-description = "A minimal template for building MCP servers with FastMCP"
-readme = "README.md"
-requires-python = ">=3.12"
-license = { text = "MIT" }
-authors = [
-    { name = "Your Name", email = "your.email@example.com" }
-]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License", 
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Communications",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
-keywords = ["mcp", "model-context-protocol", "ai", "agent", "fastmcp", "template"]
-
-# Dependencies managed by uv
-dependencies = [
-    "fastmcp>=2.8.1",
-    "pydantic>=2.0.0",
-    "uvicorn>=0.27.0",
-    "requests>=2.31.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "ruff>=0.1.0",
-    "pre-commit>=3.0.0",
-]
-
-[project.scripts]
-mcp-server = "src.server:main"
-template-mcp-server = "src.main:main"
-
-[project.urls]
-"Homepage" = "https://github.com/yourusername/template-mcp-server"
-"Documentation" = "https://github.com/yourusername/template-mcp-server/blob/main/README.md"
-"Repository" = "https://github.com/yourusername/template-mcp-server"
-"Bug Tracker" = "https://github.com/yourusername/template-mcp-server/issues"
-
-[tool.hatch.version]
-path = "src/__init__.py"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Configure the src layout for hatchling
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["template_mcp_server"]
 
-# Configuration for uv
-[tool.uv]
-dev-dependencies = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "ruff>=0.1.0",
-    "pre-commit>=3.0.0",
+[project]
+name = "template-mcp-server"
+version = "0.1.0"
+description = "A template for Model Context Protocol (MCP) server development"
+readme = "README.md"
+keywords = ["mcp", "template", "server"]
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp==2.10.4",
+    "httpx==0.28.1",
+    "beautifulsoup4==4.13.4",
+    "pydantic==2.11.7",
+    "pydantic-settings==2.10.1",
+    "structlog==25.4.0",
+    "python-dotenv==1.1.1",
+    "fastapi==0.116.0",
+    "uvicorn==0.35.0",
+    "snowflake-connector-python==3.16.0",
+    "pandas==2.2.3",
+    "langchain-google-genai ==2.1.8",
+    "openpyxl==3.1.5",
+    "anthropic==0.58.2",
+    "snowflake-snowpark-python==1.35.0"
 ]
 
-# Linting configuration updated for Python 3.12
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.1",
+    "pytest-asyncio==1.0.0",
+    "pytest-cov==6.2.1",
+    "ruff==0.12.2",
+    "mypy==1.16.1",
+    "pre-commit==4.2.0",
+    "httpx==0.28.1",
+]
+
+[project.scripts]
+template-mcp-server = "template_mcp_server.src.main:main"
+
+[project.urls]
+Homepage = "https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server"
+Repository = "https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server"
+Issues = "https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server/issues"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-select = ["E", "W", "F", "I"]  # Basic errors, warnings, and import sorting
+lint.select = ["E", "W", "F", "I", "F401"]
+lint.ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = ["--strict-markers"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+]
+markers = ["asyncio"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

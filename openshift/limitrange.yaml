@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  labels:
+    tenant.paas.redhat.com/tenant: ddis-asteroid
+  name: updated-limit
+spec:
+  limits:
+    - type: Pod
+      min:
+        cpu: 5m
+        memory: 6Mi
+      max:
+        cpu: "40"
+        memory: 34Gi
+    - type: Container
+      min:
+        cpu: 5m
+        memory: 4Mi
+      max:
+        cpu: "40"
+        memory: 34Gi
+      defaultRequest:
+        cpu: 25m
+        memory: 256Mi
+      maxLimitRequestRatio:
+        cpu: "100"
+    - type: openshift.io/Image
+      max:
+        storage: 2Gi
+    - type: openshift.io/ImageStream
+      max:
+        openshift.io/image-tags: 1k
+        openshift.io/images: 1k

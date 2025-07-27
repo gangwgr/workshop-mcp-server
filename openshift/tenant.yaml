@@ -1,0 +1,11 @@
+apiVersion: tenant.paas.redhat.com/v1alpha1
+kind: TenantNamespace
+metadata:
+  # ddis-asteroid-- is prefixed by the tenant operator
+  name: template
+  namespace: ddis-asteroid--config
+spec:
+  network:
+    security-zone: internal
+  rbac: all
+  type: runtime

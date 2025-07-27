@@ -2,65 +2,76 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: template-mcp-server
-  labels:
-    app: template-mcp-server
-    app.kubernetes.io/name: template-mcp-server
-    app.kubernetes.io/component: mcp-server
+  namespace: ddis-asteroid--template
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: template-mcp-server
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
   template:
     metadata:
       labels:
         app: template-mcp-server
     spec:
       containers:
-      - name: mcp-server
-        image: template-mcp-server:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8000
-          name: http
-          protocol: TCP
-        env:
-        - name: SERVER_HOST
-          value: "0.0.0.0"
-        - name: SERVER_PORT
-          value: "8000"
-        - name: TRANSPORT_MODE
-          value: "http"
-        - name: LOG_LEVEL
-          value: "INFO"
-        envFrom:
-        - configMapRef:
-            name: mcp-server-config
-            optional: true
-        args:
-        - "--transport"
-        - "http"
-        - "--host"
-        - "0.0.0.0"
-        - "--port"
-        - "8000"
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-      restartPolicy: Always 
+        - name: template-mcp-server
+          image: images.paas.redhat.com/rh-jarvis-ai/template-mcp-server:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+          env:
+            - name: MCP_HOST
+              value: '0.0.0.0'
+            - name: MCP_PORT
+              value: '8443'
+            - name: PYTHON_LOG_LEVEL
+              value: 'INFO'
+            - name: MCP_SSL_KEYFILE
+              value: '/run/secrets/tls/tls.key'
+            - name: MCP_SSL_CERTFILE
+              value: '/run/secrets/tls/tls.crt'
+            - name: SNOWFLAKE_ACCOUNT
+              value: 'msb29601'
+          livenessProbe:
+            exec:
+              command:
+                - curl
+                - -f
+                - -k
+                - https://0.0.0.0:8443/health
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - curl
+                - -f
+                - -k
+                - https://0.0.0.0:8443/health
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "2"
+              memory: "3Gi"
+            limits:
+              cpu: "2"
+              memory: "6Gi"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /run/secrets/tls
+      restartPolicy: Always
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: template-mcp-server-tls
