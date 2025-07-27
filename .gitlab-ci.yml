@@ -2,7 +2,7 @@ default:
   # Use Red Hat UBI Python 3.12 for Red Hat environments
   # image: registry.access.redhat.com/ubi9/python-312:latest
   # Use public Python 3.12 for general use
-  image: python:3.12-slim
+  image: registry.access.redhat.com/ubi9/python-312:latest
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
