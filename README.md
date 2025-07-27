@@ -79,6 +79,22 @@ This is a template MCP server that you can customize for your specific needs:
 3. **Customize the server**: Update `template_mcp_server/src/server.py` to register your tools
 4. **Update documentation**: Modify this README to reflect your specific use case
 
+### Available Tools
+
+The template includes several example tools:
+
+1. **Multiply Tool** (`multiply_tool.py`): Demonstrates basic arithmetic operations
+2. **Authorization Tool** (`authorization_tool.py`): Shows how to implement user permission checks
+3. **Resource Tools** (`redhat_logo.py`): Demonstrates how to work with file resources
+
 ### Example Tool Structure
 
-See `template_mcp_server/src/tools/example_tool.py` for an example of how to create MCP tools.
+See `template_mcp_server/src/tools/multiply_tool.py` for an example of how to create MCP tools.
+
+### Resources
+
+The template includes a resources system for managing files and assets:
+
+- **Assets Directory**: `template_mcp_server/assets/` - Store your resource files here
+- **Resource Functions**: Access and manage resources through MCP tools
+- **File Management**: Built-in functions to list and access available resources

@@ -8,6 +8,15 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 
+# Import prompts from the prompts package
+from template_mcp_server.src.prompts.code_review_prompt import (
+    get_code_review_prompt,
+)
+
+# Import resources from the resources package
+from template_mcp_server.src.resources.redhat_logo import (
+    read_redhat_logo_content,
+)
 from template_mcp_server.src.settings import settings
 
 # Import tools from the tools package
@@ -41,6 +50,12 @@ class TemplateMCPServer:
         """Register MCP tools for template operations."""
         # Register all the imported tools
         self.mcp.tool()(multiply_numbers)
+
+        # Register all the resources
+        self.mcp.resource("resource://redhat-logo")(read_redhat_logo_content)
+
+        # Register all the prompts
+        self.mcp.prompt()(get_code_review_prompt)
 
         @self.mcp.custom_route("/health", methods=["GET"])
         async def health_check(request: Request) -> JSONResponse:
