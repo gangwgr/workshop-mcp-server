@@ -40,6 +40,15 @@ class TemplateMCPServer:
             # Register MCP tools
             self._register_mcp_tools()
 
+            # Register MCP resources
+            self._register_mcp_resources()
+
+            # Register MCP prompts
+            self._register_mcp_prompts()
+
+            # Register custom routes
+            self._register_custom_routes()
+
             logger.info("Template MCP Server initialized successfully")
 
         except Exception as e:
@@ -51,38 +60,46 @@ class TemplateMCPServer:
         # Register all the imported tools
         self.mcp.tool()(multiply_numbers)
 
-        # Register all the resources
+    def _register_mcp_resources(self) -> None:
+        """Register MCP resources for template operations."""
+        # Register all the imported resources
         self.mcp.resource("resource://redhat-logo")(read_redhat_logo_content)
 
+    def _register_mcp_prompts(self) -> None:
+        """Register MCP prompts for template operations."""
         # Register all the prompts
         self.mcp.prompt()(get_code_review_prompt)
 
-        @self.mcp.custom_route("/health", methods=["GET"])
-        async def health_check(request: Request) -> JSONResponse:
-            """Enhanced health check endpoint.
+    def _register_custom_routes(self) -> None:
+        """Register custom routes for template operations."""
+        # Register all the custom routes
+        self.mcp.custom_route("/health", methods=["GET"])(self.health_check)
 
-            Returns JSON with details about the MCP and its dependencies.
-            Responds with HTTP 200 if all checks pass; otherwise, HTTP 503.
-            """
-            start_time = time.time()
-            health_status: Dict[str, Any] = {
-                "status": "ok",
-                "checks": {"mcp_initialized": self.mcp is not None},
-                "uptime_seconds": round(time.time() - start_time, 2),
-            }
+    async def health_check(self, request: Request) -> JSONResponse:
+        """Enhanced health check endpoint.
 
-            # Determine HTTP status based on checks
-            checks: Dict[str, bool] = health_status["checks"]
-            if not all(checks.values()):
-                health_status["status"] = "error"
-                return JSONResponse(content=health_status, status_code=503)
+        Returns JSON with details about the MCP and its dependencies.
+        Responds with HTTP 200 if all checks pass; otherwise, HTTP 503.
+        """
+        start_time = time.time()
+        health_status: Dict[str, Any] = {
+            "status": "ok",
+            "checks": {"mcp_initialized": self.mcp is not None},
+            "uptime_seconds": round(time.time() - start_time, 2),
+        }
 
-            return JSONResponse(content=health_status)
+        # Determine HTTP status based on checks
+        checks: Dict[str, bool] = health_status["checks"]
+        if not all(checks.values()):
+            health_status["status"] = "error"
+            return JSONResponse(content=health_status, status_code=503)
+
+        return JSONResponse(content=health_status)
 
     def start(self) -> None:
         """Start the MCP server.
 
-        Starts the FastMCP server with streamable HTTP transport on the
+        Starts the FastMCP server on the
         configured host and port. This is a blocking call.
 
         Raises:
@@ -95,7 +112,7 @@ class TemplateMCPServer:
                 port=settings.MCP_PORT,
             )
 
-            # Start the FastMCP server with streamable HTTP transport
+            # Start the FastMCP server
             asyncio.run(self._start_async())
 
         except KeyboardInterrupt:
