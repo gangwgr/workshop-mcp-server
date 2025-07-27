@@ -54,7 +54,7 @@ WHERE role_alignment = 'Engineering'  -- More reliable than job_role
 ```sql
 -- Find by email
 SELECT uuid, display_name, job_role, organization, cost_center
-FROM roverpeople_db.marts.rover_people_curr 
+FROM roverpeople_db.marts.rover_people_curr
 WHERE mail = 'user@redhat.com';
 
 -- Get with alignments
@@ -86,7 +86,7 @@ SELECT
     e.job_role
 FROM roverpeople_db.marts.rover_people_curr e
 WHERE e.manager_uuid = (
-    SELECT uuid FROM roverpeople_db.marts.rover_people_curr 
+    SELECT uuid FROM roverpeople_db.marts.rover_people_curr
     WHERE mail = 'manager@redhat.com'
 );
 
@@ -157,18 +157,18 @@ WHERE product_alignment IS NOT NULL;
 WHERE product_alignment = 'Red Hat Enterprise Linux'
 
 -- For ALL RHEL-related teams (~1,691 employees):
-WHERE (product_alignment LIKE '%Red Hat Enterprise Linux%' 
+WHERE (product_alignment LIKE '%Red Hat Enterprise Linux%'
        OR product_alignment LIKE '%RHEL%')
 
 -- INCORRECT: This misses the main team (~75 employees only)
 WHERE product_alignment LIKE '%RHEL%'
 
 -- Example: Get all RHEL-related teams with breakdown
-SELECT 
+SELECT
     product_alignment,
     COUNT(*) as employee_count
 FROM roverpeople_db.marts.rover_alignment_curr
-WHERE (product_alignment LIKE '%Red Hat Enterprise Linux%' 
+WHERE (product_alignment LIKE '%Red Hat Enterprise Linux%'
        OR product_alignment LIKE '%RHEL%')
 GROUP BY product_alignment
 ORDER BY employee_count DESC;
@@ -196,7 +196,7 @@ ORDER BY employee_count DESC;
 
 ## Quick Reference
 
-| Table | Purpose | Key Filter | 
+| Table | Purpose | Key Filter |
 |-------|---------|------------|
 | roverpeople_db.marts.rover_people_curr | All active employees | term_date IS NULL |
 | roverpeople_db.marts.rover_alignment_curr | Employees with alignments | Has product/role alignment |

@@ -39,4 +39,4 @@ tests/
 
 # Container files themselves
 Containerfile
-.containerignore 
+.containerignore

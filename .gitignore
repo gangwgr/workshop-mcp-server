@@ -174,11 +174,11 @@ cython_debug/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
 
 # Temporary project files and documentation
 MODERNIZATION_JOURNEY.md
 git_commands.sh
 build.log
 *.tmp
-*.bak 
+*.bak
