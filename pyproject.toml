@@ -1,0 +1,79 @@
+[project]
+name = "template-mcp-server"
+dynamic = ["version"]
+description = "A minimal template for building MCP servers with FastMCP"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License", 
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Communications",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["mcp", "model-context-protocol", "ai", "agent", "fastmcp", "template"]
+
+# Dependencies managed by uv
+dependencies = [
+    "fastmcp>=2.8.1",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.27.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0.0",
+]
+
+[project.scripts]
+mcp-server = "src.server:main"
+template-mcp-server = "src.main:main"
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/template-mcp-server"
+"Documentation" = "https://github.com/yourusername/template-mcp-server/blob/main/README.md"
+"Repository" = "https://github.com/yourusername/template-mcp-server"
+"Bug Tracker" = "https://github.com/yourusername/template-mcp-server/issues"
+
+[tool.hatch.version]
+path = "src/__init__.py"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Configure the src layout for hatchling
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+# Configuration for uv
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0.0",
+]
+
+# Linting configuration updated for Python 3.12
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+select = ["E", "W", "F", "I"]  # Basic errors, warnings, and import sorting
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["--strict-markers"]
