@@ -134,7 +134,7 @@ Copy the contents of `.env.template` to `.env`:
 ```env
 # MCP Server Configuration
 MCP_HOST=0.0.0.0
-MCP_PORT=4000
+MCP_PORT=3000
 MCP_TRANSPORT_PROTOCOL=http
 # MCP_SSL_KEYFILE=/path/to/ssl_key.pem
 # MCP_SSL_CERTFILE=/path/to/ssl_cert.pem
@@ -184,13 +184,13 @@ Once the server is running, it will be available at:
 
 ### 7.1 HTTP Protocol (http/streamable-http)
 
-- **MCP Server**: `http://0.0.0.0:4000/mcp`
-- **Health Check**: `http://0.0.0.0:4000/health`
+- **MCP Server**: `http://0.0.0.0:3000/mcp`
+- **Health Check**: `http://0.0.0.0:3000/health`
 
 ### 7.2 SSE Protocol
 
-- **SSE Endpoint**: `http://0.0.0.0:4000/sse`
-- **Health Check**: `http://0.0.0.0:4000/health`
+- **SSE Endpoint**: `http://0.0.0.0:3000/sse`
+- **Health Check**: `http://0.0.0.0:3000/health`
 
 ## 8. Deploy on OpenShift
 
