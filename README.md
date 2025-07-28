@@ -191,6 +191,9 @@ Once the server is running, it will be available at:
 The project includes complete OpenShift deployment configurations in the `openshift/` directory:
 
 ```bash
+# Create the namespace
+oc apply -f openshift/tenant.yaml
+
 # Apply the deployment
 oc apply -k openshift/
 
@@ -201,12 +204,26 @@ oc get pods -n ddis-asteroid--template
 oc logs -f deployment/template-mcp-server
 ```
 
+### Server Endpoints
+
+Once the server is running, it will be available at:
+
+#### HTTP Protocol (http/streamable-http)
+
+- **MCP Server**: `https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com/mcp`
+- **Health Check**: `https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com/health`
+
+#### SSE Protocol
+
+- **SSE Endpoint**: `https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com/sse`
+- **Health Check**: `https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com/health`
+
 ### OpenShift Configuration
 
 - **Namespace**: `ddis-asteroid--template`
 - **Port**: 8443 (HTTPS)
 - **SSL**: Configured with TLS certificates
-- **Resources**: 2 CPU, 3-6Gi memory
+- **Resources**: 1 CPU, 1Gi memory
 - **Health Checks**: Liveness and readiness probes configured
 
 ## 9. Examples
