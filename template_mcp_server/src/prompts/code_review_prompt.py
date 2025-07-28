@@ -14,13 +14,19 @@ def get_code_review_prompt(
 ) -> List[Dict[str, Any]]:
     """Generate a code review prompt.
 
+    Creates a structured prompt for code review that can be used with
+    language models to analyze code quality, identify issues, and suggest
+    improvements.
+
     Args:
-        code: The code to review
-        language: Programming language of the code
-        context: MCP context for logging and capabilities
+        code: The source code to be reviewed.
+        language: Programming language of the code (default: "python").
+        context: MCP context for logging and capabilities (optional).
 
     Returns:
-        List of message objects for the prompt
+        List[Dict[str, Any]]: A list containing a single message dictionary
+            with role "user" and content containing the formatted code review
+            prompt.
     """
     if context:
         context.info(f"Generating code review prompt for {language} code")

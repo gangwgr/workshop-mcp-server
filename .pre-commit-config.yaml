@@ -18,6 +18,7 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        exclude: ^tests/
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -32,3 +33,4 @@ repos:
     hooks:
       - id: pydocstyle
         args: [--convention=google]
+        exclude: ^tests/

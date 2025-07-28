@@ -1,31 +1,17 @@
 """Main entry point for the Template MCP Server."""
 
-import json
-import os
 import sys
 from typing import NoReturn
 
+import uvicorn
+
+from template_mcp_server.src.api import app
 from template_mcp_server.src.settings import settings
 from template_mcp_server.src.settings import validate_config as validate_config_func
 from template_mcp_server.utils.pylogger import get_python_logger
 
 # Initialize logger
 logger = get_python_logger()
-
-
-def handle_google_credentials() -> None:
-    """Handle Google credentials.
-
-    Raises:
-        ValueError: If GEMINI_API_KEY environment variable is not set.
-    """
-    google_cred_content = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
-    # print(google_cred_content)
-    if google_cred_content:
-        google_cred_content_json = json.loads(google_cred_content)
-        # print(google_cred_content_json)
-        json.dump(google_cred_content_json, open("/tmp/google_cred_content.json", "w"))
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_cred_content.json"
 
 
 def validate_config() -> None:
@@ -101,39 +87,28 @@ def main() -> None:
         SystemExit: If the server fails to start due to configuration or other errors.
     """
     try:
-        # Validate configuration
-        handle_google_credentials()
         validate_config()
 
         logger.info(
-            f"Starting Template MCP server with {settings.MCP_TRANSPORT_PROTOCOL} protocol"
+            f"Starting Template MCP server on {settings.MCP_HOST}:{settings.MCP_PORT}"
+        )
+        logger.info(
+            f"Server configured to use {settings.MCP_TRANSPORT_PROTOCOL} protocol"
         )
 
-        if settings.MCP_TRANSPORT_PROTOCOL == "stdio":
-            # For stdio transport, run the FastMCP server directly
-            import asyncio
-
-            from template_mcp_server.src.mcp import TemplateMCPServer
-
-            server = TemplateMCPServer()
-            logger.info("Server configured to use stdio transport protocol")
-
-            # Run the server using stdio transport
-            asyncio.run(server.mcp.run_stdio_async())
-        else:
-            # For HTTP-based protocols, use uvicorn
-            import uvicorn
-
-            from template_mcp_server.src.api import app
-
+        uvicorn_config = {}
+        if settings.MCP_SSL_KEYFILE and settings.MCP_SSL_CERTFILE:
+            uvicorn_config["ssl_keyfile"] = settings.MCP_SSL_KEYFILE
+            uvicorn_config["ssl_certfile"] = settings.MCP_SSL_CERTFILE
             logger.info(
-                f"Starting Template MCP server on {settings.MCP_HOST}:{settings.MCP_PORT}"
-            )
-            logger.info(
-                f"Server configured to use {settings.MCP_TRANSPORT_PROTOCOL} protocol"
+                "Starting server with SSL",
+                ssl_keyfile=settings.MCP_SSL_KEYFILE,
+                ssl_certfile=settings.MCP_SSL_CERTFILE,
             )
 
-            uvicorn.run(app, host=settings.MCP_HOST, port=settings.MCP_PORT)
+        uvicorn.run(
+            app, host=settings.MCP_HOST, port=settings.MCP_PORT, **uvicorn_config
+        )
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, shutting down")

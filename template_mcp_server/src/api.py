@@ -1,6 +1,7 @@
-"""This module sets up the FastAPI application for the NL2SQL MCP server.
+"""This module sets up the FastAPI application for the Template MCP server.
 
-It initializes the FastAPI app, configures CORS middleware, and instruments the app with OpenTelemetry.
+It initializes the FastAPI app, configures CORS middleware, and sets up
+the MCP server with appropriate transport protocols.
 """
 
 from fastapi import FastAPI

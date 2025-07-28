@@ -6,12 +6,13 @@ using the FastMCP Client and make actual MCP protocol calls.
 """
 
 import asyncio
+import json
 
 import requests
 from fastmcp import Client
 
 
-class MCPClientDemo:
+class FastMCPClient:
     """Demo client for the template MCP server using FastMCP Client."""
 
     def __init__(self, server_url: str = "http://0.0.0.0:4000"):
@@ -24,7 +25,9 @@ class MCPClientDemo:
         self.health_endpoint = f"{server_url}/health"
 
         # MCP configuration
-        self.config = {"mcpServers": {"template": {"url": f"{server_url}/mcp"}}}
+        self.config = {
+            "mcpServers": {"template_mcp_server": {"url": f"{server_url}/mcp"}}
+        }
 
     def check_server_health(self):
         """Check if the MCP server is healthy."""
@@ -83,7 +86,7 @@ class MCPClientDemo:
             # Test Red Hat logo resource
             print("\n📁 Testing Red Hat logo resource:")
             result = await client.read_resource("resource://redhat-logo")
-            print(f"   Result: {result['10']}")
+            print(f"   Result: {json.loads(result[0].text)['text'][:100]}")
 
         except Exception as e:
             print(f"   Error accessing resources: {e}")
@@ -146,7 +149,7 @@ class MCPClientDemo:
 
 async def main():
     """Main function to run the demo."""
-    demo = MCPClientDemo()
+    demo = FastMCPClient()
     await demo.run_demo()
 
 

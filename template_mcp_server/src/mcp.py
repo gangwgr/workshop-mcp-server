@@ -1,4 +1,9 @@
-"""Settings for the Template MCP Server."""
+"""Template MCP Server implementation.
+
+This module contains the main Template MCP Server class that provides
+tools, resources, and prompts for MCP clients. It uses FastMCP to
+register and manage MCP capabilities.
+"""
 
 from fastmcp import FastMCP
 
@@ -46,16 +51,28 @@ class TemplateMCPServer:
             raise
 
     def _register_mcp_tools(self) -> None:
-        """Register MCP tools for template operations."""
+        """Register MCP tools for template operations.
+
+        Registers all available tools with the FastMCP server instance.
+        Currently includes the multiply_numbers tool for basic arithmetic.
+        """
         # Register all the imported tools
         self.mcp.tool()(multiply_numbers)
 
     def _register_mcp_resources(self) -> None:
-        """Register MCP resources for template operations."""
+        """Register MCP resources for template operations.
+
+        Registers all available resources with the FastMCP server instance.
+        Currently includes the Red Hat logo resource for file access.
+        """
         # Register all the imported resources
         self.mcp.resource("resource://redhat-logo")(read_redhat_logo_content)
 
     def _register_mcp_prompts(self) -> None:
-        """Register MCP prompts for template operations."""
+        """Register MCP prompts for template operations.
+
+        Registers all available prompts with the FastMCP server instance.
+        Currently includes the code review prompt for code analysis.
+        """
         # Register all the prompts
         self.mcp.prompt()(get_code_review_prompt)

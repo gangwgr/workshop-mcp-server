@@ -36,8 +36,6 @@ spec:
               value: '/run/secrets/tls/tls.key'
             - name: MCP_SSL_CERTFILE
               value: '/run/secrets/tls/tls.crt'
-            - name: SNOWFLAKE_ACCOUNT
-              value: 'msb29601'
           livenessProbe:
             exec:
               command:

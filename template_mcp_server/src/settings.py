@@ -66,7 +66,7 @@ class Settings(BaseSettings):
             "env": "MCP_TRANSPORT_PROTOCOL",
             "description": "Transport protocol for the MCP server",
             "example": "streamable-http",
-            "enum": ["stdio", "streamable-http", "sse", "http"],
+            "enum": ["streamable-http", "sse", "http"],
         },
     )
     PYTHON_LOG_LEVEL: str = Field(
@@ -87,7 +87,7 @@ def validate_config(settings: Settings) -> None:
     are within acceptable ranges.
 
     Args:
-        config: Config instance to validate.
+        settings: Settings instance to validate.
 
     Raises:
         ValueError: If required configuration is missing or invalid.
@@ -106,7 +106,7 @@ def validate_config(settings: Settings) -> None:
         )
 
     # Validate transport protocol
-    valid_transport_protocols = ["stdio", "streamable-http", "sse", "http"]
+    valid_transport_protocols = ["streamable-http", "sse", "http"]
     if settings.MCP_TRANSPORT_PROTOCOL not in valid_transport_protocols:
         raise ValueError(
             f"MCP_TRANSPORT_PROTOCOL must be one of {valid_transport_protocols}, got {settings.MCP_TRANSPORT_PROTOCOL}"
