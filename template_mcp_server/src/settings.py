@@ -35,13 +35,13 @@ class Settings(BaseSettings):
         },
     )
     MCP_PORT: int = Field(
-        default=4000,
+        default=3000,
         ge=1024,
         le=65535,
         json_schema_extra={
             "env": "MCP_PORT",
             "description": "Port number for the MCP server",
-            "example": 4000,
+            "example": 3000,
         },
     )
     MCP_SSL_KEYFILE: Optional[str] = Field(
