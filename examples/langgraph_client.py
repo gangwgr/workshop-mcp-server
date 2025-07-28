@@ -23,14 +23,89 @@ Note:
 """
 
 import asyncio
+import os
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
 current_date = datetime.now().strftime("%B %d, %Y")
+
+
+def check_gemini_credentials():
+    """Check for GEMINI API key or Google credentials JSON.
+
+    This function verifies that either:
+    1. GEMINI_API_KEY environment variable is set, or
+    2. GOOGLE_APPLICATION_CREDENTIALS environment variable points to a valid JSON file
+
+    Returns:
+        bool: True if valid credentials are found, False otherwise
+
+    Raises:
+        SystemExit: If no valid credentials are found, with helpful error message
+    """
+    # Check for GEMINI_API_KEY environment variable
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if gemini_api_key:
+        print("✅ GEMINI_API_KEY environment variable found")
+        return True
+
+    # Check for GOOGLE_APPLICATION_CREDENTIALS environment variable
+    google_creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if google_creds_path:
+        creds_file = Path(google_creds_path)
+        if creds_file.exists():
+            try:
+                # Try to read and validate the JSON file
+                import json
+
+                with open(creds_file, "r") as f:
+                    creds_data = json.load(f)
+
+                # Check if it has the required fields for Google service account
+                if isinstance(creds_data, dict) and "type" in creds_data:
+                    print(f"✅ Google credentials JSON file found at: {creds_file}")
+                    return True
+                else:
+                    print(f"❌ Invalid Google credentials JSON format in: {creds_file}")
+                    print("   Expected a JSON object with 'type' field")
+                    return False
+            except json.JSONDecodeError:
+                print(
+                    f"❌ Invalid JSON format in Google credentials file: {creds_file}"
+                )
+                return False
+            except Exception as e:
+                print(f"❌ Error reading Google credentials file: {e}")
+                return False
+        else:
+            print(f"❌ Google credentials file not found at: {creds_file}")
+            return False
+
+    # No valid credentials found
+    print("❌ No valid GEMINI credentials found!")
+    print("\nTo fix this, set one of the following:")
+    print("1. GEMINI_API_KEY environment variable:")
+    print("   export GEMINI_API_KEY='your-api-key-here'")
+    print("\n2. GOOGLE_APPLICATION_CREDENTIALS environment variable:")
+    print(
+        "   export GOOGLE_APPLICATION_CREDENTIALS='/path/to/your/service-account-key.json'"
+    )
+    print("\nFor more information, visit:")
+    print("   https://ai.google.dev/tutorials/setup")
+    print("   https://cloud.google.com/docs/authentication/getting-started")
+
+    return False
+
+
+# Check credentials before proceeding
+if not check_gemini_credentials():
+    sys.exit(1)
 
 
 system_prompt = f"""
