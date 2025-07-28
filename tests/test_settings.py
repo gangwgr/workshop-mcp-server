@@ -18,7 +18,7 @@ class TestSettings:
 
         # Assert
         assert settings.MCP_HOST == "0.0.0.0"
-        assert settings.MCP_PORT == 4000
+        assert settings.MCP_PORT == 3000
         assert settings.MCP_TRANSPORT_PROTOCOL == "streamable-http"
         assert settings.PYTHON_LOG_LEVEL == "INFO"
         assert settings.MCP_SSL_KEYFILE is None
