@@ -203,7 +203,7 @@ class TestRedHatLogo:
 
         # Act
         with patch("builtins.open", side_effect=FileNotFoundError("File not found")):
-            result = await read_redhat_logo_content()
+            await read_redhat_logo_content()
 
         # Assert
         # Verify that the path construction was called
@@ -269,5 +269,5 @@ class TestRedHatLogo:
         import inspect
 
         sig = inspect.signature(read_redhat_logo_content)
-        assert sig.return_annotation == dict
+        assert sig.return_annotation is dict
         assert len(sig.parameters) == 0  # No parameters

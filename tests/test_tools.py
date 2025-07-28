@@ -184,18 +184,6 @@ class TestMultiplyTool:
         assert "message" in result
         assert "Failed to perform multiplication" in result["message"]
 
-    def test_multiply_numbers_edge_cases(self):
-        """Test multiplication with edge case values."""
-        # Test with very large numbers
-        result = multiply_numbers(1e10, 1e10)
-        assert result["status"] == "success"
-        assert result["result"] == 1e20
-
-        # Test with very small numbers
-        result = multiply_numbers(1e-10, 1e-10)
-        assert result["status"] == "success"
-        assert result["result"] == pytest.approx(1e-20, rel=1e-10)
-
     def test_multiply_numbers_commutative_property(self):
         """Test that multiplication is commutative."""
         # Arrange

@@ -76,7 +76,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
@@ -89,7 +89,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
@@ -108,7 +108,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
@@ -122,7 +122,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
@@ -139,7 +139,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
@@ -153,7 +153,7 @@ class TestPylogger:
         mock_structlog.get_logger.return_value = Mock()
 
         # Act
-        logger = get_python_logger()
+        get_python_logger()
 
         # Assert
         mock_structlog.configure.assert_called_once()
