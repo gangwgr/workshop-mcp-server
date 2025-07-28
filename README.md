@@ -32,6 +32,7 @@ Create a `.env` file in the project root:
 MCP_HOST=0.0.0.0
 MCP_PORT=4000
 PYTHON_LOG_LEVEL=INFO
+MCP_TRANSPORT_PROTOCOL=streamable-http
 # Add your custom environment variables here
 # SNOWFLAKE_ACCOUNT=your_snowflake_account
 # SNOWFLAKE_USER=your_snowflake_user
@@ -43,6 +44,20 @@ PYTHON_LOG_LEVEL=INFO
 
 ```
 
+### Transport Protocols
+
+The server supports multiple transport protocols that can be configured via the `MCP_TRANSPORT_PROTOCOL` environment variable:
+
+- **streamable-http** (default): Uses streamable HTTP for real-time communication
+- **sse**: Uses Server-Sent Events (SSE) for event-driven communication
+- **http**: Uses standard HTTP for request-response communication
+- **stdio**: Uses standard input/output for local communication (doesn't require a web server)
+
+**Note**: The `stdio` protocol is different from the HTTP-based protocols:
+- It doesn't use a web server (uvicorn)
+- It communicates directly through standard input/output
+- It's typically used for local development, testing, and CLI applications
+- No port configuration is needed for stdio
 
 ## Usage
 
@@ -69,6 +84,21 @@ Once the server is running, it will be available at:
 
 - **MCP Server**: `http://0.0.0.0:4000/mcp`
 - **Health Check**: `http://0.0.0.0:4000/health`
+
+**For SSE protocol:**
+- **SSE Endpoint**: `http://0.0.0.0:4000/sse`
+- **Message Endpoint**: `http://0.0.0.0:4000/mcp/message`
+
+### Testing Transport Protocols
+
+You can test different transport protocols using the provided example script:
+
+```bash
+# Run the example script to test all transport protocols
+python run_mcp_server_with_protocol.py
+```
+
+This script will start the server with each transport protocol and show the available endpoints.
 
 ## Customizing the Template
 

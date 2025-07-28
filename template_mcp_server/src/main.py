@@ -5,7 +5,6 @@ import os
 import sys
 from typing import NoReturn
 
-from template_mcp_server.src.server import TemplateMCPServer
 from template_mcp_server.src.settings import settings
 from template_mcp_server.src.settings import validate_config as validate_config_func
 from template_mcp_server.utils.pylogger import get_python_logger
@@ -107,15 +106,34 @@ def main() -> None:
         validate_config()
 
         logger.info(
-            f"Starting Template MCP server on {settings.MCP_HOST}:{settings.MCP_PORT}"
+            f"Starting Template MCP server with {settings.MCP_TRANSPORT_PROTOCOL} protocol"
         )
-        logger.info("Server configured to use streamable HTTP protocol")
 
-        # Create and start server
-        server = TemplateMCPServer()
+        if settings.MCP_TRANSPORT_PROTOCOL == "stdio":
+            # For stdio transport, run the FastMCP server directly
+            import asyncio
 
-        # Start the server (blocking call)
-        server.start()
+            from template_mcp_server.src.mcp import TemplateMCPServer
+
+            server = TemplateMCPServer()
+            logger.info("Server configured to use stdio transport protocol")
+
+            # Run the server using stdio transport
+            asyncio.run(server.mcp.run_stdio_async())
+        else:
+            # For HTTP-based protocols, use uvicorn
+            import uvicorn
+
+            from template_mcp_server.src.api import app
+
+            logger.info(
+                f"Starting Template MCP server on {settings.MCP_HOST}:{settings.MCP_PORT}"
+            )
+            logger.info(
+                f"Server configured to use {settings.MCP_TRANSPORT_PROTOCOL} protocol"
+            )
+
+            uvicorn.run(app, host=settings.MCP_HOST, port=settings.MCP_PORT)
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, shutting down")
