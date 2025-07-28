@@ -1,19 +1,19 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: template-mcp-server
+  annotations:
+    haproxy.router.openshift.io/timeout: 180s
   labels:
-    app: template-mcp-server
-    app.kubernetes.io/name: template-mcp-server
-    app.kubernetes.io/component: mcp-server
+    shard: internal
+  name: template-mcp-server
+  namespace: ddis-asteroid--template
 spec:
+  host: template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com
+  pathType: Prefix
   to:
     kind: Service
     name: template-mcp-server
-    weight: 100
-  port:
-    targetPort: http
   tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
-  wildcardPolicy: None 
+    termination: reencrypt
+  port:
+    targetPort: https
