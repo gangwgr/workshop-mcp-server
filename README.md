@@ -2,12 +2,93 @@
 
 A Model Context Protocol (MCP) server template that provides a foundation for building MCP servers. This template can be customized for various data operations and management functionality.
 
+## 1. Description
 
-## Installation
+The Template MCP Server is a production-ready foundation for building Model Context Protocol (MCP) servers. It provides a complete framework with:
+
+- **FastAPI-based HTTP server** with multiple transport protocol support
+- **Modular tool system** for easy extension and customization
+- **Resource management** for file and asset handling
+- **Prompt templates** for AI interactions
+- **Comprehensive testing** and deployment configurations
+- **OpenShift deployment** ready with SSL support
+
+The server supports multiple transport protocols (HTTP, SSE, Streamable-HTTP) and includes built-in tools for mathematical operations, resource access, and code review prompts.
+
+## 2. Architecture
+
+### 2.1 Flow Diagram
+
+```mermaid
+graph TD
+    A[Client Request] --> B[FastAPI App]
+    B --> C{Transport Protocol}
+    C -->|HTTP/Streamable-HTTP| D[HTTP Handler]
+    C -->|SSE| E[SSE Handler]
+
+    D --> G[MCP Server]
+    E --> G
+
+    G --> H{Tool Type}
+    H -->|Tools| I[Tool Registry]
+    H -->|Resources| J[Resource Registry]
+    H -->|Prompts| K[Prompt Registry]
+
+    I --> L[multiply_numbers]
+    J --> M[redhat_logo]
+    K --> N[code_review_prompt]
+
+    L --> O[Response]
+    M --> O
+    N --> O
+
+    O --> P[Client Response]
+
+    subgraph "Configuration"
+        Q[Settings]
+        R[Environment Variables]
+        S[SSL Configuration]
+    end
+
+    Q --> G
+    R --> Q
+    S --> G
+```
+
+### 2.2 Code Structure
+
+```
+template-mcp-server/
+├── template_mcp_server/
+│   ├── src/
+│   │   ├── main.py              # Server entry point
+│   │   ├── api.py               # FastAPI application setup
+│   │   ├── mcp.py               # MCP server implementation
+│   │   ├── settings.py          # Configuration management
+│   │   ├── tools/               # MCP tools
+│   │   │   └── multiply_tool.py
+│   │   ├── resources/           # MCP resources
+│   │   │   └── redhat_logo.py
+│   │   └── prompts/             # MCP prompts
+│   │       └── code_review_prompt.py
+│   └── utils/
+│       └── pylogger.py          # Logging utilities
+├── examples/                     # Client examples
+│   ├── fastmcp_client.py
+│   └── langgraph_client.py
+├── tests/                       # Comprehensive test suite
+├── openshift/                   # OpenShift deployment configs
+├── compose.yaml                 # Docker Compose configuration
+├── Containerfile               # Container definition
+└── pyproject.toml             # Project configuration
+```
+
+## 3. Installation
 
 ### Prerequisites
 
-- uv (install it from https://docs.astral.sh/uv/getting-started/installation/)
+- Python 3.12 or higher
+- uv (install from https://docs.astral.sh/uv/getting-started/installation/)
 
 ### Install from source
 
@@ -24,107 +105,253 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-## Environment file
+## 4. Run the pytests
 
-Create a `.env` file in the project root:
+```bash
+# Run all tests
+pytest
 
-```env
-MCP_HOST=0.0.0.0
-MCP_PORT=4000
-PYTHON_LOG_LEVEL=INFO
-MCP_TRANSPORT_PROTOCOL=streamable-http
-# Add your custom environment variables here
-# SNOWFLAKE_ACCOUNT=your_snowflake_account
-# SNOWFLAKE_USER=your_snowflake_user
-# GOOGLE_APPLICATION_CREDENTIALS_CONTENT='{
-#     "type": "service_account",
-#     ...
-#     "universe_domain": "googleapis.com"
-#   }'
+# Run tests with coverage
+pytest --cov=template_mcp_server
 
+# Run specific test file
+pytest tests/test_tools.py
+
+# Run tests with verbose output
+pytest -v
 ```
 
-### Transport Protocols
+## 5. Environment File
+
+Copy the contents of `.env.template` to `.env`:
+
+```env
+# MCP Server Configuration
+MCP_HOST=0.0.0.0
+MCP_PORT=4000
+MCP_TRANSPORT_PROTOCOL=http
+# MCP_SSL_KEYFILE=/path/to/ssl_key.pem
+# MCP_SSL_CERTFILE=/path/to/ssl_cert.pem
+
+# Python Logging
+PYTHON_LOG_LEVEL=INFO
+```
+
+### 5.1 Transport Protocol
 
 The server supports multiple transport protocols that can be configured via the `MCP_TRANSPORT_PROTOCOL` environment variable:
 
-- **streamable-http** (default): Uses streamable HTTP for real-time communication
-- **sse**: Uses Server-Sent Events (SSE) for event-driven communication
-- **http**: Uses standard HTTP for request-response communication
-- **stdio**: Uses standard input/output for local communication (doesn't require a web server)
+- **http/streamable-http**: Standard HTTP for request-response communication (both use the same implementation)
+- **sse**: Server-Sent Events (SSE) for event-driven communication (deprecated)
 
-**Note**: The `stdio` protocol is different from the HTTP-based protocols:
-- It doesn't use a web server (uvicorn)
-- It communicates directly through standard input/output
-- It's typically used for local development, testing, and CLI applications
-- No port configuration is needed for stdio
+**Note**: Both **http** and **streamable-http** protocols use the same HTTP implementation and are functionally identical. We recommend using **http** or **streamable-http** for most use cases as they provide the best compatibility and performance. The **SSE protocol** is deprecated and should only be used if specifically required for legacy clients like Goose users on Linux desktop environments.
 
-## Usage
+## 6. Usage (Run locally)
 
-### Starting the server
-
-#### Method 1: Using Python directly
+### Method 1: Using Python directly
 
 ```bash
 # Run the server
 python -m template_mcp_server.src.main
 ```
 
-#### Method 2: Using the installed script
+### Method 2: Using the installed script
 
 ```bash
 # After installation, you can run the server using the installed script
 template-mcp-server
 ```
 
+### Method 3: Using Docker Compose
 
-### Server Endpoints
+```bash
+# Start the server using Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+## 7. Server Endpoints
 
 Once the server is running, it will be available at:
+
+### 7.1 HTTP Protocol (http/streamable-http)
 
 - **MCP Server**: `http://0.0.0.0:4000/mcp`
 - **Health Check**: `http://0.0.0.0:4000/health`
 
-**For SSE protocol:**
+### 7.2 SSE Protocol
+
 - **SSE Endpoint**: `http://0.0.0.0:4000/sse`
-- **Message Endpoint**: `http://0.0.0.0:4000/mcp/message`
+- **Health Check**: `http://0.0.0.0:4000/health`
 
-### Testing Transport Protocols
+## 8. Deploy on OpenShift
 
-You can test different transport protocols using the provided example script:
+The project includes complete OpenShift deployment configurations in the `openshift/` directory:
 
 ```bash
-# Run the example script to test all transport protocols
-python sample_mcp_server.py
+# Apply the deployment
+oc apply -k openshift/
+
+# Check deployment status
+oc get pods -n ddis-asteroid--template
+
+# View logs
+oc logs -f deployment/template-mcp-server
 ```
 
-This script will start the server with each transport protocol and show the available endpoints.
+### OpenShift Configuration
 
-## Customizing the Template
+- **Namespace**: `ddis-asteroid--template`
+- **Port**: 8443 (HTTPS)
+- **SSL**: Configured with TLS certificates
+- **Resources**: 2 CPU, 3-6Gi memory
+- **Health Checks**: Liveness and readiness probes configured
 
-This is a template MCP server that you can customize for your specific needs:
+## 9. Examples
 
-1. **Add your own tools**: Create new tool files in `template_mcp_server/src/tools/`
-2. **Update configuration**: Modify `template_mcp_server/src/settings.py` to add your environment variables
-3. **Customize the server**: Update `template_mcp_server/src/server.py` to register your tools
-4. **Update documentation**: Modify this README to reflect your specific use case
+### FastMCP Client Example
 
-### Available Tools
+```bash
+# Run the FastMCP client example
+python examples/fastmcp_client.py
+```
 
-The template includes several example tools:
+This example demonstrates:
+- Connecting to the MCP server
+- Using available tools (multiply_numbers)
+- Accessing resources (Red Hat logo)
+- Using prompts (code review)
 
-1. **Multiply Tool** (`multiply_tool.py`): Demonstrates basic arithmetic operations
-2. **Authorization Tool** (`authorization_tool.py`): Shows how to implement user permission checks
-3. **Resource Tools** (`redhat_logo.py`): Demonstrates how to work with file resources
+### LangGraph Client Example
 
-### Example Tool Structure
+```bash
+# Run the LangGraph client example
+python examples/langgraph_client.py
+```
 
-See `template_mcp_server/src/tools/multiply_tool.py` for an example of how to create MCP tools.
+This example shows:
+- LangGraph agent integration
+- Google Gemini model usage
+- Tool calls for mathematical operations
+- Conversational AI workflows
 
-### Resources
+## 10. How to Customize the Template
 
-The template includes a resources system for managing files and assets:
+### Adding New Tools
 
-- **Assets Directory**: `template_mcp_server/assets/` - Store your resource files here
-- **Resource Functions**: Access and manage resources through MCP tools
-- **File Management**: Built-in functions to list and access available resources
+1. Create a new tool file in `template_mcp_server/src/tools/`:
+
+```python
+# template_mcp_server/src/tools/my_tool.py
+from typing import Any, Dict
+
+def my_custom_tool(param1: str, param2: int) -> Dict[str, Any]:
+    """My custom tool description."""
+    # Your tool logic here
+    return {
+        "status": "success",
+        "result": "your_result"
+    }
+```
+
+2. Register the tool in `template_mcp_server/src/mcp.py`:
+
+```python
+from template_mcp_server.src.tools.my_tool import my_custom_tool
+
+def _register_mcp_tools(self) -> None:
+    self.mcp.tool()(multiply_numbers)
+    self.mcp.tool()(my_custom_tool)  # Add your tool here
+```
+
+### Adding New Resources
+
+1. Create a resource file in `template_mcp_server/src/resources/`:
+
+```python
+# template_mcp_server/src/resources/my_resource.py
+def read_my_resource_content() -> str:
+    """Read content from my resource."""
+    return "Your resource content"
+```
+
+2. Register the resource in `template_mcp_server/src/mcp.py`:
+
+```python
+from template_mcp_server.src.resources.my_resource import read_my_resource_content
+
+def _register_mcp_resources(self) -> None:
+    self.mcp.resource("resource://my-resource")(read_my_resource_content)
+```
+
+### Adding New Prompts
+
+1. Create a prompt file in `template_mcp_server/src/prompts/`:
+
+```python
+# template_mcp_server/src/prompts/my_prompt.py
+def get_my_prompt(code: str, language: str) -> str:
+    """Generate a custom prompt."""
+    return f"Review this {language} code: {code}"
+```
+
+2. Register the prompt in `template_mcp_server/src/mcp.py`:
+
+```python
+from template_mcp_server.src.prompts.my_prompt import get_my_prompt
+
+def _register_mcp_prompts(self) -> None:
+    self.mcp.prompt()(get_my_prompt)
+```
+
+### Updating Configuration
+
+1. Add new environment variables to `template_mcp_server/src/settings.py`:
+
+```python
+class Settings(BaseSettings):
+    # Existing settings...
+
+    MY_CUSTOM_VAR: str = Field(
+        default="default_value",
+        json_schema_extra={
+            "env": "MY_CUSTOM_VAR",
+            "description": "Description of your custom variable"
+        }
+    )
+```
+
+2. Update `.env.template` with your new variables:
+
+```env
+# Existing variables...
+MY_CUSTOM_VAR=your_value
+```
+
+### Customizing the Server
+
+1. **Update server behavior**: Modify `template_mcp_server/src/mcp.py`
+2. **Add middleware**: Update `template_mcp_server/src/api.py`
+3. **Customize logging**: Modify `template_mcp_server/utils/pylogger.py`
+4. **Add authentication**: Extend the FastAPI app in `template_mcp_server/src/api.py`
+
+### Testing Your Changes
+
+```bash
+# Run tests for your new components
+pytest tests/test_tools.py -k "test_my_tool"
+pytest tests/test_resources.py -k "test_my_resource"
+pytest tests/test_prompts.py -k "test_my_prompt"
+
+# Run all tests to ensure nothing is broken
+pytest
+```
+
+### Deployment Considerations
+
+1. **Update Docker configuration**: Modify `Containerfile` if needed
+2. **Update OpenShift configs**: Modify files in `openshift/` directory
+3. **Update dependencies**: Add new requirements to `pyproject.toml`
+4. **Update documentation**: Modify this README to reflect your changes
