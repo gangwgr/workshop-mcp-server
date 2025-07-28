@@ -15,7 +15,7 @@ from fastmcp import Client
 class FastMCPClient:
     """Demo client for the template MCP server using FastMCP Client."""
 
-    def __init__(self, server_url: str = "http://0.0.0.0:4000"):
+    def __init__(self, server_url: str):
         """Initialize the MCP client demo.
 
         Args:
@@ -149,7 +149,11 @@ class FastMCPClient:
 
 async def main():
     """Main function to run the demo."""
-    demo = FastMCPClient()
+    # Test MCP server deployed locally
+    demo = FastMCPClient(server_url="http://0.0.0.0:4000")
+
+    # Test MCP server deployed on openshift
+    # demo = FastMCPClient(server_url="https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com")
     await demo.run_demo()
 
 

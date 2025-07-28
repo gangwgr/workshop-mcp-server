@@ -114,8 +114,6 @@ system_prompt = f"""
     Today's date is {current_date}.
 
     A few things to remember:
-    - **Always use the same language as the user.**
-    - **Please include markdown-formatted links to any citations used in your response.** Only include one or two citations per response unless more are needed. ONLY USE LINKS RETURNED BY THE TOOLS.
     - **Only use the tools you are given to answer the user's question.** Do not answer directly from internal knowledge.
     - **You must always reason before acting.**
     - **Every Final Answer must be grounded in tool observations.**
@@ -150,6 +148,7 @@ async def get_agent_redhat():
                 "messages": [{"role": "user", "content": "What is 5 * 3?"}]
             })
     """
+    # Test MCP server deployed locally
     # Initialize MCP client and get tools
     client = MultiServerMCPClient(
         {
@@ -159,6 +158,17 @@ async def get_agent_redhat():
             },
         }
     )
+
+    # Test MCP server deployed on openshift
+    # Initialize MCP client and get tools
+    # client = MultiServerMCPClient(
+    #     {
+    #         "template_mcp_server": {
+    #             "url": "https://template-mcp-server.apps.int.spoke.preprod.us-west-2.aws.paas.redhat.com/mcp/",
+    #             "transport": "streamable_http",
+    #         },
+    #     }
+    # )
 
     tools = await client.get_tools()
     # resources = await client.get_resources(tools)

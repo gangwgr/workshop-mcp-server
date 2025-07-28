@@ -26,16 +26,13 @@ spec:
             - containerPort: 8443
               protocol: TCP
           env:
-            - name: MCP_HOST
-              value: '0.0.0.0'
-            - name: MCP_PORT
-              value: '8443'
-            - name: PYTHON_LOG_LEVEL
-              value: 'INFO'
             - name: MCP_SSL_KEYFILE
               value: '/run/secrets/tls/tls.key'
             - name: MCP_SSL_CERTFILE
               value: '/run/secrets/tls/tls.crt'
+          envFrom:
+            - configMapRef:
+                name: template-mcp-server-config
           livenessProbe:
             exec:
               command:

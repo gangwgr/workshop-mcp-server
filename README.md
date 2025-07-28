@@ -8,12 +8,14 @@ The Template MCP Server is a production-ready foundation for building Model Cont
 
 - **FastAPI-based HTTP server** with multiple transport protocol support
 - **Modular tool system** for easy extension and customization
-- **Resource management** for file and asset handling
-- **Prompt templates** for AI interactions
+- **Resource management** for file and asset handling (limited client support)
+- **Prompt templates** for AI interactions (limited client support)
 - **Comprehensive testing** and deployment configurations
 - **OpenShift deployment** ready with SSL support
 
 The server supports multiple transport protocols (HTTP, SSE, Streamable-HTTP) and includes built-in tools for mathematical operations, resource access, and code review prompts.
+
+**Important**: Most popular MCP clients like LangGraph and CrewAI only support MCP tools. Resources and prompts have limited client support and should only be implemented when absolutely necessary for your specific use case.
 
 ## 2. Architecture
 
@@ -103,6 +105,10 @@ source .venv/bin/activate
 
 # Install the package
 uv pip install -e ".[dev]"
+
+# Install RH certificates
+wget https://certs.corp.redhat.com/certs/Current-IT-Root-CAs.pem \
+    && cat Current-IT-Root-CAs.pem >> `python -m certifi`
 ```
 
 ## 4. Run the pytests
@@ -285,6 +291,8 @@ def _register_mcp_tools(self) -> None:
 
 ### Adding New Resources
 
+**Note**: Resources have limited client support. Most popular MCP clients like LangGraph and CrewAI do not support MCP resources. Only implement resources if absolutely necessary for your specific use case.
+
 1. Create a resource file in `template_mcp_server/src/resources/`:
 
 ```python
@@ -304,6 +312,8 @@ def _register_mcp_resources(self) -> None:
 ```
 
 ### Adding New Prompts
+
+**Note**: Prompts have limited client support. Most popular MCP clients like LangGraph and CrewAI do not support MCP prompts. Only implement prompts if absolutely necessary for your specific use case.
 
 1. Create a prompt file in `template_mcp_server/src/prompts/`:
 
@@ -365,6 +375,16 @@ pytest tests/test_prompts.py -k "test_my_prompt"
 # Run all tests to ensure nothing is broken
 pytest
 ```
+
+### Client Compatibility Considerations
+
+When designing your MCP server, consider the following client compatibility:
+
+- **✅ Tools**: Supported by most MCP clients including LangGraph, CrewAI, and others
+- **⚠️ Resources**: Limited support - only implement if absolutely necessary
+- **⚠️ Prompts**: Limited support - only implement if absolutely necessary
+
+**Recommendation**: Focus on implementing MCP tools as they have the broadest client support and are the most reliable way to extend MCP server functionality.
 
 ### Deployment Considerations
 
