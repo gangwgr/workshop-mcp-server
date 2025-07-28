@@ -5,15 +5,12 @@ This tool demonstrates basic arithmetic functionality by multiplying two numbers
 
 from typing import Any, Dict
 
-from fastmcp import Context
-
 from template_mcp_server.utils.pylogger import get_python_logger
 
 logger = get_python_logger()
 
 
 def multiply_numbers(
-    context: Context,
     a: float,
     b: float,
 ) -> Dict[str, Any]:
@@ -22,7 +19,6 @@ def multiply_numbers(
     This is a simple arithmetic tool that multiplies two floating-point numbers.
 
     Args:
-        context: MCP context
         a: First number to multiply
         b: Second number to multiply
 

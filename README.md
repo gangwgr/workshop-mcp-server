@@ -95,7 +95,7 @@ You can test different transport protocols using the provided example script:
 
 ```bash
 # Run the example script to test all transport protocols
-python run_mcp_server_with_protocol.py
+python sample_mcp_server.py
 ```
 
 This script will start the server with each transport protocol and show the available endpoints.
