@@ -376,6 +376,40 @@ pytest tests/test_prompts.py -k "test_my_prompt"
 pytest
 ```
 
+### Container Testing
+
+The project includes comprehensive container tests in `tests/test_container.py` that verify:
+
+- **Rootless container build** with Red Hat UBI Python 3.12
+- **Container execution** and health verification
+- **SSL/HTTPS configuration** capability
+- **Production deployment** readiness
+
+```bash
+# Run all container tests (requires podman or docker)
+pytest tests/test_container.py -v
+
+# Test specific functionality
+pytest tests/test_container.py::TestContainerBuild -v          # Build verification
+pytest tests/test_container.py::TestContainerExecution -v     # Runtime testing
+pytest tests/test_container.py::TestContainerConfiguration -v # Config validation
+pytest tests/test_container.py::TestProductionDeployment -v   # Production readiness
+```
+
+**Container Features Tested:**
+- ✅ Red Hat UBI base image compliance
+- ✅ Rootless operation (no root user required)
+- ✅ Virtual environment isolation
+- ✅ Red Hat certificate integration
+- ✅ HTTP/HTTPS server startup
+- ✅ Source code structure validation
+- ✅ Production optimization verification
+
+**Requirements:**
+- `podman` or `docker` must be available
+- Network access for base image download
+- ~2-3 minutes for initial build
+
 ### Client Compatibility Considerations
 
 When designing your MCP server, consider the following client compatibility:
@@ -388,7 +422,8 @@ When designing your MCP server, consider the following client compatibility:
 
 ### Deployment Considerations
 
-1. **Update Docker configuration**: Modify `Containerfile` if needed
+1. **Update container configuration**: Modify `Containerfile` if needed
 2. **Update OpenShift configs**: Modify files in `openshift/` directory
 3. **Update dependencies**: Add new requirements to `pyproject.toml`
-4. **Update documentation**: Modify this README to reflect your changes
+4. **Test container changes**: Run `pytest tests/test_container.py -v`
+5. **Update documentation**: Modify this README to reflect your changes
