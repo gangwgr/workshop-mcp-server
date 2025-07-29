@@ -1,38 +1,25 @@
 FROM registry.access.redhat.com/ubi9/python-312:latest
 
-# --------------------------------------------------------------------------------------------------
-# set the working directory to /app
-# --------------------------------------------------------------------------------------------------
-
+# Set working directory (creates /app with default user permissions)
 WORKDIR /app
 
-# --------------------------------------------------------------------------------------------------
-# Copy manifest files and install python packages
-# --------------------------------------------------------------------------------------------------
-
+# Copy dependencies and install packages
 COPY pyproject.toml /app/pyproject.toml
 RUN pip install uv
-RUN uv venv
-RUN source /app/.venv/bin/activate
-RUN uv pip install -r pyproject.toml
-RUN wget https://certs.corp.redhat.com/certs/Current-IT-Root-CAs.pem \
-    && cat Current-IT-Root-CAs.pem >> `/app/.venv/bin/python -m certifi`
+RUN uv venv ~/.venv
+RUN uv pip install --python ~/.venv/bin/python -r pyproject.toml
 
-# --------------------------------------------------------------------------------------------------
-# copy source code and files
-# --------------------------------------------------------------------------------------------------
+# Download Red Hat certificates (optional, may fail outside corporate network)
+RUN wget https://certs.corp.redhat.com/certs/Current-IT-Root-CAs.pem -O /tmp/certs.pem 2>/dev/null \
+    && cat /tmp/certs.pem >> `~/.venv/bin/python -m certifi` \
+    && rm -f /tmp/certs.pem \
+    || echo "Red Hat certificate download skipped (not in corporate network)"
 
+# Copy source code
 COPY template_mcp_server /app/template_mcp_server
 
-# --------------------------------------------------------------------------------------------------
-# Set PYTHONPATH to include /app
-# --------------------------------------------------------------------------------------------------
-
+# Set Python path to include working directory
 ENV PYTHONPATH=/app
 
-
-# --------------------------------------------------------------------------------------------------
-# add entrypoint for the container
-# --------------------------------------------------------------------------------------------------
-
-CMD ["/app/.venv/bin/python", "-m", "template_mcp_server.src.main"]
+# Set entrypoint to run the application
+CMD ["/opt/app-root/src/.venv/bin/python", "-m", "template_mcp_server.src.main"]
