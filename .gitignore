@@ -159,7 +159,7 @@ cython_debug/
 #  .idea/
 
 # Cursor
-.cursor/
+# .cursor/ - Removed to include AI development assistance files
 
 # IDE files
 .vscode/

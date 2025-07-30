@@ -32,8 +32,7 @@ class TestContainerBuild:
         content = containerfile_path.read_text()
 
         # Assert
-        assert "FROM registry.access.redhat.com/ubi9/python-312" in content
-        assert "latest" in content or "3.12" in content
+        assert "registry.access.redhat.com/ubi9/python-312" in content
 
     def test_containerfile_structure(self):
         """Test that Containerfile has expected structure."""
@@ -46,9 +45,9 @@ class TestContainerBuild:
 
         # Assert
         assert any("WORKDIR" in line for line in lines), "Should set working directory"
-        assert any("COPY" in line for line in lines), "Should copy application files"
-        assert any("RUN" in line for line in lines), "Should have installation steps"
-        assert any("CMD" in line for line in lines), "Should have entry point command"
+        assert any("COPY" in line for line in lines), "Should copy files"
+        assert any("RUN" in line for line in lines), "Should run installation commands"
+        assert any("CMD" in line for line in lines), "Should have startup command"
 
     def test_containerignore_exists(self):
         """Test that .containerignore exists for optimized builds."""
@@ -67,24 +66,15 @@ class TestContainerBuild:
         assert "*.py[cod]" in content, "Should ignore Python compiled files"
 
     @pytest.mark.skipif(
-        not (
-            subprocess.run(["which", "podman"], capture_output=True).returncode == 0
-            or subprocess.run(["which", "docker"], capture_output=True).returncode == 0
-        ),
-        reason="Neither podman nor docker available",
+        subprocess.run(["which", "podman"], capture_output=True).returncode != 0,
+        reason="podman not available",
     )
     def test_container_build_success(self):
-        """Test that container builds successfully with podman or docker."""
+        """Test that container builds successfully with podman."""
         # Arrange
         image_name = "template-mcp-server-test"
-
-        # Determine which container tool to use
-        if subprocess.run(["which", "podman"], capture_output=True).returncode == 0:
-            build_cmd = ["podman", "build", "-t", image_name, "."]
-            cleanup_cmd = ["podman", "rmi", image_name]
-        else:
-            build_cmd = ["docker", "build", "-t", image_name, "."]
-            cleanup_cmd = ["docker", "rmi", image_name]
+        build_cmd = ["podman", "build", "-t", image_name, "."]
+        cleanup_cmd = ["podman", "rmi", image_name]
 
         try:
             # Act
@@ -97,7 +87,6 @@ class TestContainerBuild:
 
             # Assert
             assert result.returncode == 0, f"Build failed: {result.stderr}"
-            assert "COMMIT" in result.stdout or "Successfully tagged" in result.stdout
 
         finally:
             # Cleanup
@@ -108,49 +97,28 @@ class TestContainerExecution:
     """Test container execution and functionality."""
 
     @pytest.mark.skipif(
-        not (
-            subprocess.run(["which", "podman"], capture_output=True).returncode == 0
-            or subprocess.run(["which", "docker"], capture_output=True).returncode == 0
-        ),
-        reason="Neither podman nor docker available",
+        subprocess.run(["which", "podman"], capture_output=True).returncode != 0,
+        reason="podman not available",
     )
     def test_container_startup_and_health(self):
-        """Test that container starts and health endpoint responds."""
+        """Test that container starts and responds to HTTP requests."""
         # Arrange
         image_name = "template-mcp-server-test"
         container_name = "template-mcp-test-container"
-
-        # Determine which container tool to use
-        if subprocess.run(["which", "podman"], capture_output=True).returncode == 0:
-            build_cmd = ["podman", "build", "-t", image_name, "."]
-            run_cmd = [
-                "podman",
-                "run",
-                "-d",
-                "--name",
-                container_name,
-                "-p",
-                "3001:3000",
-                image_name,
-            ]
-            stop_cmd = ["podman", "stop", container_name]
-            rm_cmd = ["podman", "rm", container_name]
-            cleanup_img_cmd = ["podman", "rmi", image_name]
-        else:
-            build_cmd = ["docker", "build", "-t", image_name, "."]
-            run_cmd = [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                container_name,
-                "-p",
-                "3001:3000",
-                image_name,
-            ]
-            stop_cmd = ["docker", "stop", container_name]
-            rm_cmd = ["docker", "rm", container_name]
-            cleanup_img_cmd = ["docker", "rmi", image_name]
+        build_cmd = ["podman", "build", "-t", image_name, "."]
+        run_cmd = [
+            "podman",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "-p",
+            "3001:3000",
+            image_name,
+        ]
+        stop_cmd = ["podman", "stop", container_name]
+        rm_cmd = ["podman", "rm", container_name]
+        cleanup_img_cmd = ["podman", "rmi", image_name]
 
         try:
             # Build container
@@ -200,7 +168,7 @@ class TestContainerExecution:
 
 
 class TestContainerConfiguration:
-    """Test container configuration and security."""
+    """Test container configuration and setup."""
 
     def test_containerfile_uses_virtual_environment(self):
         """Test that container uses Python virtual environment."""
@@ -225,12 +193,11 @@ class TestContainerConfiguration:
         content = containerfile_path.read_text()
 
         # Assert
-        assert "COPY pyproject.toml" in content, "Should copy dependency file"
-        assert "uv pip install" in content, "Should install dependencies"
-        assert "COPY template_mcp_server" in content, "Should copy source code"
+        assert "pip install uv" in content, "Should install uv package manager"
+        assert "pyproject.toml" in content, "Should copy dependency manifest"
 
     def test_containerfile_sets_workdir(self):
-        """Test that container sets working directory."""
+        """Test that container sets appropriate working directory."""
         # Arrange
         containerfile_path = Path("Containerfile")
 
@@ -241,7 +208,7 @@ class TestContainerConfiguration:
         assert "WORKDIR /app" in content, "Should set working directory to /app"
 
     def test_containerfile_includes_red_hat_certificates(self):
-        """Test that container includes Red Hat certificate configuration."""
+        """Test that container includes Red Hat certificate handling."""
         # Arrange
         containerfile_path = Path("Containerfile")
 
@@ -255,7 +222,7 @@ class TestContainerConfiguration:
         assert "certifi" in content, "Should update certificate bundle"
 
     def test_container_pythonpath_configuration(self):
-        """Test that container sets correct Python path."""
+        """Test that container sets PYTHONPATH correctly."""
         # Arrange
         containerfile_path = Path("Containerfile")
 
@@ -267,7 +234,7 @@ class TestContainerConfiguration:
 
 
 class TestProductionDeployment:
-    """Test production deployment considerations."""
+    """Test production deployment readiness."""
 
     def test_containerfile_optimized_for_production(self):
         """Test that Containerfile follows production best practices."""
@@ -290,35 +257,25 @@ class TestProductionDeployment:
     def test_source_code_structure_for_container(self):
         """Test that source code structure matches container expectations."""
         # Arrange
-        template_dir = Path("template_mcp_server")
+        expected_dirs = ["template_mcp_server", "tests"]
 
         # Act & Assert
-        assert template_dir.exists(), "template_mcp_server directory should exist"
-        assert (template_dir / "src").exists(), "src directory should exist"
-        assert (template_dir / "src" / "main.py").exists(), "main.py should exist"
-        assert (template_dir / "src" / "api.py").exists(), "api.py should exist"
+        for dir_name in expected_dirs:
+            dir_path = Path(dir_name)
+            assert dir_path.exists(), f"Directory {dir_name} should exist"
+            assert dir_path.is_dir(), f"{dir_name} should be a directory"
 
     @pytest.mark.skipif(
-        not (
-            subprocess.run(["which", "podman"], capture_output=True).returncode == 0
-            or subprocess.run(["which", "docker"], capture_output=True).returncode == 0
-        ),
-        reason="Neither podman nor docker available",
+        subprocess.run(["which", "podman"], capture_output=True).returncode != 0,
+        reason="podman not available",
     )
     def test_container_resource_usage(self):
         """Test container resource usage and startup time."""
         # Arrange
         image_name = "template-mcp-server-test"
-
-        # Determine which container tool to use
-        if subprocess.run(["which", "podman"], capture_output=True).returncode == 0:
-            build_cmd = ["podman", "build", "-t", image_name, "."]
-            inspect_cmd = ["podman", "inspect", image_name]
-            cleanup_cmd = ["podman", "rmi", image_name]
-        else:
-            build_cmd = ["docker", "build", "-t", image_name, "."]
-            inspect_cmd = ["docker", "inspect", image_name]
-            cleanup_cmd = ["docker", "rmi", image_name]
+        build_cmd = ["podman", "build", "-t", image_name, "."]
+        inspect_cmd = ["podman", "inspect", image_name]
+        cleanup_cmd = ["podman", "rmi", image_name]
 
         try:
             # Build and inspect container

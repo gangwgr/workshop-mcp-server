@@ -80,7 +80,7 @@ template-mcp-server/
 │   └── langgraph_client.py
 ├── tests/                       # Comprehensive test suite
 ├── openshift/                   # OpenShift deployment configs
-├── compose.yaml                 # Docker Compose configuration
+├── compose.yaml                 # Container compose configuration
 ├── Containerfile               # Container definition
 └── pyproject.toml             # Project configuration
 ```
@@ -168,14 +168,20 @@ python -m template_mcp_server.src.main
 template-mcp-server
 ```
 
-### Method 3: Using Docker Compose
+### Method 3: Using Podman Container
 
 ```bash
-# Start the server using Docker Compose
-docker-compose up -d
+# Build the container
+podman build -t template-mcp-server .
+
+# Run the container
+podman run -d --name mcp-server -p 3000:3000 template-mcp-server
 
 # View logs
-docker-compose logs -f
+podman logs -f mcp-server
+
+# Stop the container
+podman stop mcp-server && podman rm mcp-server
 ```
 
 ## 7. Server Endpoints
@@ -386,7 +392,7 @@ The project includes comprehensive container tests in `tests/test_container.py` 
 - **Production deployment** readiness
 
 ```bash
-# Run all container tests (requires podman or docker)
+# Run all container tests (requires podman)
 pytest tests/test_container.py -v
 
 # Test specific functionality
@@ -403,10 +409,10 @@ pytest tests/test_container.py::TestProductionDeployment -v   # Production readi
 - ✅ Red Hat certificate integration
 - ✅ HTTP/HTTPS server startup
 - ✅ Source code structure validation
-- ✅ Production optimization verification
+- ✅ Podman build and execution validation
 
 **Requirements:**
-- `podman` or `docker` must be available
+- `podman` must be available (Red Hat's container engine)
 - Network access for base image download
 - ~2-3 minutes for initial build
 
@@ -420,9 +426,41 @@ When designing your MCP server, consider the following client compatibility:
 
 **Recommendation**: Focus on implementing MCP tools as they have the broadest client support and are the most reliable way to extend MCP server functionality.
 
+## 11. AI Development Assistant
+
+This template includes `.cursor/rules.md` - a comprehensive development guide specifically designed to help AI coding assistants understand and work effectively with this MCP server template.
+
+### What's Included
+
+The `.cursor/rules.md` file provides:
+- **Enterprise containerization patterns** (Podman, Red Hat UBI, rootless containers)
+- **MCP development best practices** (tool design, error handling, testing patterns)
+- **FastAPI + MCP integration examples** with real code snippets
+- **Container testing strategies** matching our `test_container.py` implementation
+- **AI assistant guidelines** for working with this specific template architecture
+
+### Usage Options
+
+You have several options for the `.cursor/rules.md` file:
+
+1. **Keep it**: Use as-is to help AI assistants understand your project structure
+2. **Customize it**: Modify the file to reflect your specific deployment needs and patterns
+3. **Remove it**: Delete the file if you don't need AI development assistance
+4. **Contribute improvements**: Submit merge requests with enhancements or fixes
+
+### Contributing
+
+We welcome contributions to improve the AI development assistance:
+- **Bug fixes** for incorrect patterns or outdated information
+- **New patterns** for common MCP server development scenarios
+- **Documentation improvements** for better AI assistant guidance
+- **Tool integration examples** for additional development workflows
+
+Submit your improvements via merge request - we value innovations in this area!
+
 ### Deployment Considerations
 
-1. **Update container configuration**: Modify `Containerfile` if needed
+1. **Update container configuration**: Modify `Containerfile` (optimized for Podman/Buildah)
 2. **Update OpenShift configs**: Modify files in `openshift/` directory
 3. **Update dependencies**: Add new requirements to `pyproject.toml`
 4. **Test container changes**: Run `pytest tests/test_container.py -v`
