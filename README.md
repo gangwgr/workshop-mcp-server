@@ -8,14 +8,13 @@ The Template MCP Server is a production-ready foundation for building Model Cont
 
 - **FastAPI-based HTTP server** with multiple transport protocol support
 - **Modular tool system** for easy extension and customization
-- **Resource management** for file and asset handling (limited client support)
-- **Prompt templates** for AI interactions (limited client support)
 - **Comprehensive testing** and deployment configurations
 - **OpenShift deployment** ready with SSL support
+- **Simplified architecture** with everything organized as tools for maximum agent compatibility
 
-The server supports multiple transport protocols (HTTP, SSE, Streamable-HTTP) and includes built-in tools for mathematical operations, resource access, and code review prompts.
+The server supports multiple transport protocols (HTTP, SSE, Streamable-HTTP) and includes built-in tools for mathematical operations, code review prompts, and asset access.
 
-**Important**: Most popular MCP clients like LangGraph and CrewAI only support MCP tools. Resources and prompts have limited client support and should only be implemented when absolutely necessary for your specific use case.
+**Design Philosophy**: This template focuses on MCP tools as the primary interface since they have universal support across all MCP clients including LangGraph, CrewAI, and others. This ensures maximum compatibility and ease of use.
 
 ## 2. Architecture
 
@@ -31,18 +30,15 @@ graph TD
     D --> G[MCP Server]
     E --> G
 
-    G --> H{Tool Type}
-    H -->|Tools| I[Tool Registry]
-    H -->|Resources| J[Resource Registry]
-    H -->|Prompts| K[Prompt Registry]
+    G --> H[Tool Registry]
 
-    I --> L[multiply_numbers]
-    J --> M[redhat_logo]
-    K --> N[code_review_prompt]
+    H --> I[multiply_numbers]
+    H --> J[generate_code_review_prompt]
+    H --> K[get_redhat_logo]
 
-    L --> O[Response]
-    M --> O
-    N --> O
+    I --> L[Response]
+    J --> L
+    K --> L
 
     O --> P[Client Response]
 
@@ -67,12 +63,12 @@ template-mcp-server/
 │   │   ├── api.py               # FastAPI application setup
 │   │   ├── mcp.py               # MCP server implementation
 │   │   ├── settings.py          # Configuration management
-│   │   ├── tools/               # MCP tools
-│   │   │   └── multiply_tool.py
-│   │   ├── resources/           # MCP resources
-│   │   │   └── redhat_logo.py
-│   │   └── prompts/             # MCP prompts
-│   │       └── code_review_prompt.py
+│   │   ├── tools/               # All MCP tools (including converted prompts/resources)
+│   │   │   ├── multiply_tool.py
+│   │   │   ├── code_review_tool.py
+│   │   │   └── redhat_logo_tool.py
+│   │   └── assets/              # Static assets used by tools
+│   │       └── redhat.png
 │   └── utils/
 │       └── pylogger.py          # Logging utilities
 ├── examples/                     # Client examples
@@ -249,9 +245,9 @@ python examples/fastmcp_client.py
 
 This example demonstrates:
 - Connecting to the MCP server
-- Using available tools (multiply_numbers)
-- Accessing resources (Red Hat logo)
-- Using prompts (code review)
+- Using available tools (multiply_numbers, generate_code_review_prompt, get_redhat_logo)
+- Mathematical operations and code analysis
+- Asset retrieval functionality
 
 ### LangGraph Client Example
 
@@ -275,14 +271,31 @@ This example shows:
 ```python
 # template_mcp_server/src/tools/my_tool.py
 from typing import Any, Dict
+from template_mcp_server.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 def my_custom_tool(param1: str, param2: int) -> Dict[str, Any]:
     """My custom tool description."""
-    # Your tool logic here
-    return {
-        "status": "success",
-        "result": "your_result"
-    }
+    try:
+        # Your tool logic here
+        result = f"Processed {param1} with value {param2}"
+
+        logger.info(f"My custom tool executed successfully")
+
+        return {
+            "status": "success",
+            "operation": "my_custom_tool",
+            "result": result,
+            "message": "Tool executed successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error in my custom tool: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Tool execution failed"
+        }
 ```
 
 2. Register the tool in `template_mcp_server/src/mcp.py`:
@@ -292,51 +305,50 @@ from template_mcp_server.src.tools.my_tool import my_custom_tool
 
 def _register_mcp_tools(self) -> None:
     self.mcp.tool()(multiply_numbers)
+    self.mcp.tool()(generate_code_review_prompt)
+    self.mcp.tool()(get_redhat_logo)
     self.mcp.tool()(my_custom_tool)  # Add your tool here
 ```
 
-### Adding New Resources
+### Adding Assets
 
-**Note**: Resources have limited client support. Most popular MCP clients like LangGraph and CrewAI do not support MCP resources. Only implement resources if absolutely necessary for your specific use case.
+If your tools need to access static files (images, data files, etc.), place them in the `template_mcp_server/src/assets/` directory:
 
-1. Create a resource file in `template_mcp_server/src/resources/`:
+1. Add your asset file to `template_mcp_server/src/assets/`:
+   ```
+   template_mcp_server/src/assets/
+   ├── redhat.png          # Existing logo
+   └── my_data_file.json   # Your new asset
+   ```
 
-```python
-# template_mcp_server/src/resources/my_resource.py
-def read_my_resource_content() -> str:
-    """Read content from my resource."""
-    return "Your resource content"
-```
-
-2. Register the resource in `template_mcp_server/src/mcp.py`:
+2. Access the asset from your tool:
 
 ```python
-from template_mcp_server.src.resources.my_resource import read_my_resource_content
+# template_mcp_server/src/tools/my_data_tool.py
+from pathlib import Path
+import json
 
-def _register_mcp_resources(self) -> None:
-    self.mcp.resource("resource://my-resource")(read_my_resource_content)
-```
+def get_my_data() -> Dict[str, Any]:
+    """Read data from assets directory."""
+    try:
+        current_dir = Path(__file__).parent.parent  # Go up from tools to src
+        assets_dir = current_dir / "assets"
+        data_path = assets_dir / "my_data_file.json"
 
-### Adding New Prompts
+        with open(data_path, "r") as f:
+            data = json.load(f)
 
-**Note**: Prompts have limited client support. Most popular MCP clients like LangGraph and CrewAI do not support MCP prompts. Only implement prompts if absolutely necessary for your specific use case.
-
-1. Create a prompt file in `template_mcp_server/src/prompts/`:
-
-```python
-# template_mcp_server/src/prompts/my_prompt.py
-def get_my_prompt(code: str, language: str) -> str:
-    """Generate a custom prompt."""
-    return f"Review this {language} code: {code}"
-```
-
-2. Register the prompt in `template_mcp_server/src/mcp.py`:
-
-```python
-from template_mcp_server.src.prompts.my_prompt import get_my_prompt
-
-def _register_mcp_prompts(self) -> None:
-    self.mcp.prompt()(get_my_prompt)
+        return {
+            "status": "success",
+            "data": data,
+            "message": "Data retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Failed to read data"
+        }
 ```
 
 ### Updating Configuration
@@ -373,13 +385,14 @@ MY_CUSTOM_VAR=your_value
 ### Testing Your Changes
 
 ```bash
-# Run tests for your new components
+# Run tests for your new tools
 pytest tests/test_tools.py -k "test_my_tool"
-pytest tests/test_resources.py -k "test_my_resource"
-pytest tests/test_prompts.py -k "test_my_prompt"
 
 # Run all tests to ensure nothing is broken
 pytest
+
+# Run tests with coverage
+pytest --cov=template_mcp_server
 ```
 
 ### Container Testing
@@ -416,15 +429,20 @@ pytest tests/test_container.py::TestProductionDeployment -v   # Production readi
 - Network access for base image download
 - ~2-3 minutes for initial build
 
-### Client Compatibility Considerations
+### Design Philosophy and Compatibility
 
-When designing your MCP server, consider the following client compatibility:
+This template follows a **tools-first approach** for maximum compatibility:
 
-- **✅ Tools**: Supported by most MCP clients including LangGraph, CrewAI, and others
-- **⚠️ Resources**: Limited support - only implement if absolutely necessary
-- **⚠️ Prompts**: Limited support - only implement if absolutely necessary
+- **✅ Everything as Tools**: All functionality (math operations, code review, asset access) is implemented as MCP tools
+- **✅ Universal Client Support**: Tools work with all MCP clients including LangGraph, CrewAI, and others
+- **✅ Simplified Architecture**: Single `tools/` directory contains all functionality
+- **✅ Easy Extension**: Adding new capabilities is as simple as creating a new tool
 
-**Recommendation**: Focus on implementing MCP tools as they have the broadest client support and are the most reliable way to extend MCP server functionality.
+**Benefits of the Tools-First Approach**:
+- **Maximum Compatibility**: Works with any MCP client
+- **Consistent Interface**: All functionality accessed through the same tool protocol
+- **Easy Testing**: All features can be tested using the same patterns
+- **Future-Proof**: As MCP evolves, tools remain the most stable interface
 
 ## 11. AI Development Assistant
 

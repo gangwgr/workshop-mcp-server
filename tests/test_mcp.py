@@ -26,9 +26,8 @@ class TestTemplateMCPServer:
         mock_logger.info.assert_called_with(
             "Template MCP Server initialized successfully"
         )
+        # In tools-first architecture, we only register tools
         mock_mcp.tool.assert_called()
-        mock_mcp.resource.assert_called()
-        mock_mcp.prompt.assert_called()
 
     @patch("template_mcp_server.src.mcp.FastMCP")
     @patch("template_mcp_server.src.mcp.logger")
@@ -60,35 +59,24 @@ class TestTemplateMCPServer:
         mock_mcp.tool.assert_called()
 
     @patch("template_mcp_server.src.mcp.FastMCP")
-    def test_register_mcp_resources(self, mock_fastmcp):
-        """Test MCP resources registration."""
+    def test_register_mcp_tools_functionality(self, mock_fastmcp):
+        """Test that MCP tools registration includes all expected tools."""
         # Arrange
         mock_mcp = Mock()
         mock_fastmcp.return_value = mock_mcp
         server = TemplateMCPServer()
 
         # Act
-        server._register_mcp_resources()
+        server._register_mcp_tools()
 
         # Assert
-        mock_mcp.resource.assert_called_with("resource://redhat-logo")
-
-    @patch("template_mcp_server.src.mcp.FastMCP")
-    def test_register_mcp_prompts(self, mock_fastmcp):
-        """Test MCP prompts registration."""
-        # Arrange
-        mock_mcp = Mock()
-        mock_fastmcp.return_value = mock_mcp
-        server = TemplateMCPServer()
-
-        # Act
-        server._register_mcp_prompts()
-
-        # Assert
-        mock_mcp.prompt.assert_called()
+        # Verify that tool() was called multiple times (once for each tool)
+        assert (
+            mock_mcp.tool.call_count >= 3
+        )  # multiply_numbers, generate_code_review_prompt, get_redhat_logo
 
     def test_server_attributes(self):
-        """Test that server has required attributes."""
+        """Test that server has required attributes for tools-first architecture."""
         # Arrange & Act
         with patch("template_mcp_server.src.mcp.FastMCP"):
             server = TemplateMCPServer()
@@ -96,5 +84,6 @@ class TestTemplateMCPServer:
         # Assert
         assert hasattr(server, "mcp")
         assert hasattr(server, "_register_mcp_tools")
-        assert hasattr(server, "_register_mcp_resources")
-        assert hasattr(server, "_register_mcp_prompts")
+        # In tools-first architecture, we only have tools registration
+        assert not hasattr(server, "_register_mcp_resources")
+        assert not hasattr(server, "_register_mcp_prompts")
