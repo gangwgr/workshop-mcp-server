@@ -6,6 +6,8 @@ tools for MCP clients. It uses FastMCP to register and manage MCP capabilities.
 
 from fastmcp import FastMCP
 
+from template_mcp_server.src.settings import settings
+
 # Import tools from the tools package
 from template_mcp_server.src.tools.code_review_tool import (
     generate_code_review_prompt,
@@ -16,7 +18,10 @@ from template_mcp_server.src.tools.multiply_tool import (
 from template_mcp_server.src.tools.redhat_logo_tool import (
     get_redhat_logo,
 )
-from template_mcp_server.utils.pylogger import get_python_logger
+from template_mcp_server.utils.pylogger import (
+    force_reconfigure_all_loggers,
+    get_python_logger,
+)
 
 logger = get_python_logger()
 
@@ -29,6 +34,9 @@ class TemplateMCPServer:
         try:
             # Initialize FastMCP server
             self.mcp = FastMCP("template")
+
+            # Force reconfigure all loggers after FastMCP initialization to ensure structured logging
+            force_reconfigure_all_loggers(settings.PYTHON_LOG_LEVEL)
 
             # Register MCP tools
             self._register_mcp_tools()

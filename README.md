@@ -111,10 +111,10 @@ wget https://certs.corp.redhat.com/certs/Current-IT-Root-CAs.pem \
 
 ```bash
 # Run all tests
-pytest
+make test
 
 # Run tests with coverage
-pytest --cov=template_mcp_server
+make test-cov
 
 # Run specific test file
 pytest tests/test_tools.py
@@ -168,16 +168,7 @@ template-mcp-server
 
 ```bash
 # Build the container
-podman build -t template-mcp-server .
-
-# Run the container
-podman run -d --name mcp-server -p 3000:3000 template-mcp-server
-
-# View logs
-podman logs -f mcp-server
-
-# Stop the container
-podman stop mcp-server && podman rm mcp-server
+make dev
 ```
 
 ## 7. Server Endpoints
