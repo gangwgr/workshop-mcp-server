@@ -99,21 +99,39 @@ class TestServer:
 
     def test_server_initialization(self):
         """Test that server can be initialized."""
-        server = self.TemplateMCPServer()
-        assert server is not None
-        assert hasattr(server, "mcp")
-        assert hasattr(server, "_register_mcp_tools")
+        with (
+            patch("template_mcp_server.src.mcp.settings") as mock_settings,
+            patch("template_mcp_server.src.mcp.force_reconfigure_all_loggers"),
+            patch("template_mcp_server.src.mcp.FastMCP"),
+        ):
+            mock_settings.PYTHON_LOG_LEVEL = "INFO"
+            server = self.TemplateMCPServer()
+            assert server is not None
+            assert hasattr(server, "mcp")
+            assert hasattr(server, "_register_mcp_tools")
 
     def test_server_has_mcp_tools(self):
         """Test that server has MCP tools registered."""
-        server = self.TemplateMCPServer()
-        assert hasattr(server, "_register_mcp_tools")
+        with (
+            patch("template_mcp_server.src.mcp.settings") as mock_settings,
+            patch("template_mcp_server.src.mcp.force_reconfigure_all_loggers"),
+            patch("template_mcp_server.src.mcp.FastMCP"),
+        ):
+            mock_settings.PYTHON_LOG_LEVEL = "INFO"
+            server = self.TemplateMCPServer()
+            assert hasattr(server, "_register_mcp_tools")
 
     def test_server_mcp_instance(self):
         """Test that server has a valid FastMCP instance."""
-        server = self.TemplateMCPServer()
-        assert server.mcp is not None
-        assert hasattr(server.mcp, "tool")
+        with (
+            patch("template_mcp_server.src.mcp.settings") as mock_settings,
+            patch("template_mcp_server.src.mcp.force_reconfigure_all_loggers"),
+            patch("template_mcp_server.src.mcp.FastMCP"),
+        ):
+            mock_settings.PYTHON_LOG_LEVEL = "INFO"
+            server = self.TemplateMCPServer()
+            assert server.mcp is not None
+            assert hasattr(server.mcp, "tool")
 
     def test_transport_protocol_configuration(self):
         """Test transport protocol configuration."""

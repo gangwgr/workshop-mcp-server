@@ -8,7 +8,7 @@ import uvicorn
 from template_mcp_server.src.api import app
 from template_mcp_server.src.settings import settings
 from template_mcp_server.src.settings import validate_config as validate_config_func
-from template_mcp_server.utils.pylogger import get_python_logger
+from template_mcp_server.utils.pylogger import get_python_logger, get_uvicorn_log_config
 
 # Initialize logger
 logger = get_python_logger()
@@ -90,9 +90,6 @@ def main() -> None:
         validate_config()
 
         logger.info(
-            f"Starting Template MCP server on {settings.MCP_HOST}:{settings.MCP_PORT}"
-        )
-        logger.info(
             f"Server configured to use {settings.MCP_TRANSPORT_PROTOCOL} protocol"
         )
 
@@ -107,7 +104,11 @@ def main() -> None:
             )
 
         uvicorn.run(
-            app, host=settings.MCP_HOST, port=settings.MCP_PORT, **uvicorn_config
+            app,
+            host=settings.MCP_HOST,
+            port=settings.MCP_PORT,
+            log_config=get_uvicorn_log_config(settings.PYTHON_LOG_LEVEL),
+            **uvicorn_config,
         )
 
     except KeyboardInterrupt:
