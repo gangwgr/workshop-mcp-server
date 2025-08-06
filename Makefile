@@ -9,6 +9,3 @@ dev:
 
 test:
 	python3 -m pytest
-
-test-cov:
-	python3 -m pytest --cov=template_mcp_server
