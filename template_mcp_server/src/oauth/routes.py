@@ -11,8 +11,8 @@ from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Request
 
-from . import oauth_controller
-from .oauth_service import OAuthService
+from . import controller
+from .service import OAuthService
 
 oauth_router = APIRouter(prefix="/auth", tags=["OAuth2"])
 
@@ -30,7 +30,7 @@ async def callback_endpoint(request: Request):
     if get_oauth_service is None:
         raise RuntimeError("OAuth service not initialized")
     oauth_service = get_oauth_service()
-    return await oauth_controller.handle_callback(request, oauth_service)
+    return await controller.handle_callback(request, oauth_service)
 
 
 @oauth_router.get("/authorize")
@@ -43,7 +43,7 @@ async def authorize_endpoint(request: Request):
     if get_oauth_service is None:
         raise RuntimeError("OAuth service not initialized")
     oauth_service = get_oauth_service()
-    return await oauth_controller.handle_authorize(request, oauth_service)
+    return await controller.handle_authorize(request, oauth_service)
 
 
 @oauth_router.post("/token")
@@ -56,7 +56,7 @@ async def token_endpoint(request: Request) -> Dict[str, Any]:
     if get_oauth_service is None:
         raise RuntimeError("OAuth service not initialized")
     oauth_service = get_oauth_service()
-    result = await oauth_controller.handle_token(request, oauth_service)
+    result = await controller.handle_token(request, oauth_service)
     return result.model_dump() if hasattr(result, "model_dump") else result
 
 
@@ -69,7 +69,7 @@ async def register_endpoint(request: Request) -> Dict[str, Any]:
     if get_oauth_service is None:
         raise RuntimeError("OAuth service not initialized")
     oauth_service = get_oauth_service()
-    result = await oauth_controller.handle_register(request, oauth_service)
+    result = await controller.handle_register(request, oauth_service)
     return result.model_dump() if hasattr(result, "model_dump") else result
 
 
@@ -82,7 +82,7 @@ async def introspect_endpoint(request: Request) -> Dict[str, Any]:
     if get_oauth_service is None:
         raise RuntimeError("OAuth service not initialized")
     oauth_service = get_oauth_service()
-    result = await oauth_controller.handle_introspect(request, oauth_service)
+    result = await controller.handle_introspect(request, oauth_service)
     return result.model_dump() if hasattr(result, "model_dump") else result
 
 

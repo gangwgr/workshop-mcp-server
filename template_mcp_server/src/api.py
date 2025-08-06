@@ -16,9 +16,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from template_mcp_server.src.mcp import TemplateMCPServer
-from template_mcp_server.src.oauth.oauth_handler import OAuth2Handler
-from template_mcp_server.src.oauth.oauth_routes import register_oauth_routes
-from template_mcp_server.src.oauth.oauth_service import OAuthService
+from template_mcp_server.src.oauth.handler import OAuth2Handler
+from template_mcp_server.src.oauth.routes import register_oauth_routes
+from template_mcp_server.src.oauth.service import OAuthService
 from template_mcp_server.src.settings import settings
 from template_mcp_server.utils.pylogger import get_python_logger
 
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize storage service before starting
     logger.info("Initializing storage service...")
     try:
-        from template_mcp_server.src.oauth.oauth_service import initialize_storage
+        from template_mcp_server.src.oauth.service import initialize_storage
 
         storage_service = await initialize_storage()
         logger.info("Storage service initialized successfully")
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Cleanup storage service
     logger.info("Shutting down storage service...")
     try:
-        from template_mcp_server.src.oauth.oauth_service import cleanup_storage
+        from template_mcp_server.src.oauth.service import cleanup_storage
 
         await cleanup_storage()
         oauth_service_instance = None
@@ -182,7 +182,7 @@ class LocalDevelopmentAuthorizationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         try:
-            from template_mcp_server.src.oauth.oauth_handler import OAuth2Handler
+            from template_mcp_server.src.oauth.handler import OAuth2Handler
 
             authorization_url, state = OAuth2Handler.get_authorization_url()
 
