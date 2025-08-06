@@ -27,10 +27,14 @@ logger = get_python_logger()
 
 
 class TemplateMCPServer:
-    """Main Template MCP Server implementation."""
+    """Main Template MCP Server implementation following tools-first architecture.
+
+    This server provides only tools, not resources or prompts, adhering to
+    the tools-first architectural pattern for MCP servers.
+    """
 
     def __init__(self):
-        """Initialize the MCP server with template tools."""
+        """Initialize the MCP server with template tools following tools-first architecture."""
         try:
             # Initialize FastMCP server
             self.mcp = FastMCP("template")
@@ -38,7 +42,6 @@ class TemplateMCPServer:
             # Force reconfigure all loggers after FastMCP initialization to ensure structured logging
             force_reconfigure_all_loggers(settings.PYTHON_LOG_LEVEL)
 
-            # Register MCP tools
             self._register_mcp_tools()
 
             logger.info("Template MCP Server initialized successfully")
@@ -48,9 +51,10 @@ class TemplateMCPServer:
             raise
 
     def _register_mcp_tools(self) -> None:
-        """Register MCP tools for template operations.
+        """Register MCP tools for template operations (tools-first architecture).
 
         Registers all available tools with the FastMCP server instance.
+        In tools-first architecture, the server only provides tools.
         Currently includes:
         - multiply_numbers: Basic arithmetic operations
         - generate_code_review_prompt: Code review prompt generation
