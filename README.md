@@ -125,7 +125,13 @@ pytest -v
 
 ## 5. Environment File
 
-Copy the contents of `.env.template` to `.env`:
+Copy the contents of `.env.template` to `.env` using the command shown below:
+
+```bash
+cp .env.template .env
+```
+
+Below is a snapshot of the .env.template file:
 
 ```env
 # MCP Server Configuration
@@ -149,6 +155,12 @@ The server supports multiple transport protocols that can be configured via the 
 **Note**: Both **http** and **streamable-http** protocols use the same HTTP implementation and are functionally identical. We recommend using **http** or **streamable-http** for most use cases as they provide the best compatibility and performance. The **SSE protocol** is deprecated and should only be used if specifically required for legacy clients like Goose users on Linux desktop environments.
 
 ## 6. Usage (Run locally)
+
+Before running the server locally, make sure a PostgreSQL service is running and accessible. If you don't already have one running, you can start the included PostgreSQL container with:
+
+```bash
+podman-compose up -d postgres
+```
 
 ### Method 1: Using Python directly
 
