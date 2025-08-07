@@ -18,15 +18,15 @@ from pydantic import ValidationError
 from template_mcp_server.src.settings import settings
 from template_mcp_server.utils.pylogger import get_python_logger
 
-from .oauth_handler import OAuth2Handler
-from .oauth_models import (
+from .handler import OAuth2Handler
+from .models import (
     AuthorizationCodeTokenRequest,
     ClientCredentialsTokenRequest,
     ClientRegistrationRequest,
     ClientRegistrationResponse,
     RefreshTokenRequest,
 )
-from .oauth_service import OAuthService, verify_code_challenge
+from .service import OAuthService, verify_code_challenge
 
 logger = get_python_logger(settings.PYTHON_LOG_LEVEL)
 
