@@ -13,8 +13,20 @@ from template_mcp_server.utils.pylogger import get_python_logger
 logger = get_python_logger()
 
 
-def get_redhat_logo() -> Dict[str, Any]:
+async def get_redhat_logo() -> Dict[str, Any]:
     """Return the Red Hat logo as a base64 encoded string.
+
+    TOOL_NAME=get_redhat_logo
+    DISPLAY_NAME=Get Red Hat Logo
+    USECASE=Retrieve Red Hat logo for presentations, documentation, or branding
+    INSTRUCTIONS=1. Call function (no parameters needed), 2. Receive base64-encoded logo data
+    INPUT_DESCRIPTION=No input parameters required
+    OUTPUT_DESCRIPTION=Dictionary with status, operation, logo metadata (name, description, mimeType), base64 data, size info, and message
+    EXAMPLES=get_redhat_logo()
+    PREREQUISITES=None - logo file must exist in assets directory
+    RELATED_TOOLS=None - standalone asset retrieval
+
+    Resource-as-tool pattern - async def for file I/O operations.
 
     Reads the Red Hat logo PNG file from the assets directory and returns
     it as a base64 encoded string for MCP clients to use.
