@@ -11,11 +11,23 @@ from template_mcp_server.utils.pylogger import get_python_logger
 logger = get_python_logger()
 
 
-def generate_code_review_prompt(
+async def generate_code_review_prompt(
     code: str,
     language: str = "python",
 ) -> Dict[str, Any]:
-    """Generate a code review prompt as a tool.
+    """Generate a structured code review prompt with comprehensive metadata.
+
+    TOOL_NAME=generate_code_review_prompt
+    DISPLAY_NAME=Code Review Prompt Generator
+    USECASE=Analyze code for quality, bugs, and improvements using external AI service
+    INSTRUCTIONS=1. Provide source code as string, 2. Specify programming language, 3. Receive formatted review prompt
+    INPUT_DESCRIPTION=code (string): source code to review, language (string, optional): programming language (default: "python")
+    OUTPUT_DESCRIPTION=Dictionary with status, operation, language, formatted prompt text, and message
+    EXAMPLES=generate_code_review_prompt("def hello(): print('world')", "python")
+    PREREQUISITES=Have source code ready for analysis
+    RELATED_TOOLS=None - generates prompts for external AI analysis
+
+    I/O-bound operation - uses async def for external API calls.
 
     Creates a structured prompt for code review that can be used with
     language models to analyze code quality, identify issues, and suggest

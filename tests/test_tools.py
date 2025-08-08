@@ -1,5 +1,6 @@
 """Tests for all MCP tools."""
 
+import asyncio
 from unittest.mock import Mock, mock_open, patch
 
 import pytest
@@ -211,7 +212,7 @@ class TestCodeReviewTool:
         language = "python"
 
         # Act
-        result = generate_code_review_prompt(code, language)
+        result = asyncio.run(generate_code_review_prompt(code, language))
 
         # Assert
         assert isinstance(result, dict)
@@ -227,7 +228,7 @@ class TestCodeReviewTool:
         code = "function add(a, b) { return a + b; }"
 
         # Act
-        result = generate_code_review_prompt(code)
+        result = asyncio.run(generate_code_review_prompt(code))
 
         # Assert
         assert isinstance(result, dict)
@@ -242,7 +243,7 @@ class TestCodeReviewTool:
         language = "python"
 
         # Act
-        result = generate_code_review_prompt(code, language)
+        result = asyncio.run(generate_code_review_prompt(code, language))
 
         # Assert
         assert isinstance(result, dict)
@@ -256,7 +257,7 @@ class TestCodeReviewTool:
         language = ""
 
         # Act
-        result = generate_code_review_prompt(code, language)
+        result = asyncio.run(generate_code_review_prompt(code, language))
 
         # Assert
         assert isinstance(result, dict)
@@ -270,7 +271,7 @@ class TestCodeReviewTool:
         language = "python"
 
         # Act
-        result = generate_code_review_prompt(code, language)
+        result = asyncio.run(generate_code_review_prompt(code, language))
         content = result["prompt"]
 
         # Assert
@@ -302,7 +303,7 @@ class TestRedHatLogoTool:
         mock_path.return_value = mock_path_instance
 
         # Act
-        result = get_redhat_logo()
+        result = asyncio.run(get_redhat_logo())
 
         # Assert
         assert result["status"] == "success"
@@ -331,7 +332,7 @@ class TestRedHatLogoTool:
         # Configure open to raise FileNotFoundError
         with patch("builtins.open", side_effect=FileNotFoundError("File not found")):
             # Act
-            result = get_redhat_logo()
+            result = asyncio.run(get_redhat_logo())
 
         # Assert
         assert result["status"] == "error"
@@ -356,7 +357,7 @@ class TestRedHatLogoTool:
         # Configure open to raise PermissionError
         with patch("builtins.open", side_effect=PermissionError("Permission denied")):
             # Act
-            result = get_redhat_logo()
+            result = asyncio.run(get_redhat_logo())
 
         # Assert
         assert result["status"] == "error"
