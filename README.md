@@ -81,7 +81,83 @@ template-mcp-server/
 └── pyproject.toml             # Project configuration
 ```
 
-## 3. Installation
+## 3. Quick Start - Create Your Own MCP Server
+
+🚀 **Want to create your own domain-specific MCP server from this template?** Use our automated transformation script!
+
+### 3.1 Automated Template Transformation
+
+The fastest way to create your own MCP server is to use our transformation script. You have two options:
+
+#### Option A: Download Script Only (Recommended)
+
+```bash
+# Download the transformation script to your workspace directory
+curl -O https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server/-/raw/main/scripts/transform-template.sh
+
+# Make it executable
+chmod +x transform-template.sh
+
+# Run it (it will clone the template automatically)
+./transform-template.sh "your-project-name"
+
+# Example: Create a sales territory MCP server
+./transform-template.sh "sales-territory-mcp-server"
+```
+
+#### Option B: Clone First, Then Transform
+
+⚠️ **Important**: If you clone first, run the script BEFORE changing into the template directory:
+
+```bash
+# Clone this template repository
+git clone https://gitlab.cee.redhat.com/dataverse/ai/mcp-servers/template-mcp-server.git
+
+# Run transformation script FROM OUTSIDE the template directory
+./template-mcp-server/scripts/transform-template.sh "your-project-name"
+
+# Example: Create a sales territory MCP server
+./template-mcp-server/scripts/transform-template.sh "sales-territory-mcp-server"
+```
+
+### 3.2 What the Script Does
+
+The transformation script automatically:
+
+- ✅ **Renames all files and directories** with your project name
+- ✅ **Updates all code references** from template to your domain
+- ✅ **Modifies configuration files** (pyproject.toml, Containerfile, etc.)
+- ✅ **Updates documentation** (README, deployment configs)
+- ✅ **Preserves all functionality** (tests, tools, deployment configs)
+- ✅ **Creates a ready-to-use project** in a new directory
+
+### 3.3 After Transformation
+
+⚠️ **Critical**: You MUST install the package after transformation for imports to work:
+
+```bash
+cd your-project-name
+
+# Install the package in development mode (REQUIRED)
+pip install -e ".[dev]"
+
+# Now tests will work
+pytest  # All tests pass!
+```
+
+**Why this step is required**: The transformation script creates a new Python package with your project name (e.g., `party_lens_mcp_server`), but Python needs the package to be installed to import it in tests and runtime.
+
+Then start customizing by:
+1. **Adding your domain-specific tools** in `src/tools/`
+2. **Updating the example tools** to match your use case
+3. **Modifying tests** for your new functionality
+4. **Deploying** using the included OpenShift configs
+
+📚 **For detailed transformation documentation**, see [scripts/README.md](scripts/README.md)
+
+## 4. Manual Installation (Alternative)
+
+> 💡 **Tip**: If you just want to use this template to create your own MCP server, use the [transformation script](#3-quick-start---create-your-own-mcp-server) instead of manual installation.
 
 ### Prerequisites
 
@@ -107,7 +183,7 @@ wget https://certs.corp.redhat.com/certs/Current-IT-Root-CAs.pem \
     && cat Current-IT-Root-CAs.pem >> `python -m certifi`
 ```
 
-## 4. Run the pytests
+## 5. Run the pytests
 
 ```bash
 # Run all tests
@@ -123,7 +199,7 @@ pytest tests/test_tools.py
 pytest -v
 ```
 
-## 5. Environment File
+## 6. Environment File
 
 Copy the contents of `.env.template` to `.env` using the command shown below:
 
@@ -154,7 +230,7 @@ The server supports multiple transport protocols that can be configured via the 
 
 **Note**: Both **http** and **streamable-http** protocols use the same HTTP implementation and are functionally identical. We recommend using **http** or **streamable-http** for most use cases as they provide the best compatibility and performance. The **SSE protocol** is deprecated and should only be used if specifically required for legacy clients like Goose users on Linux desktop environments.
 
-## 6. Usage (Run locally)
+## 7. Usage (Run locally)
 
 Before running the server locally, make sure a PostgreSQL service is running and accessible. If you don't already have one running, you can start the included PostgreSQL container with:
 
@@ -183,21 +259,21 @@ template-mcp-server
 make dev
 ```
 
-## 7. Server Endpoints
+## 8. Server Endpoints
 
 Once the server is running, it will be available at:
 
-### 7.1 HTTP Protocol (http/streamable-http)
+### 8.1 HTTP Protocol (http/streamable-http)
 
 - **MCP Server**: `http://0.0.0.0:3000/mcp`
 - **Health Check**: `http://0.0.0.0:3000/health`
 
-### 7.2 SSE Protocol
+### 8.2 SSE Protocol
 
 - **SSE Endpoint**: `http://0.0.0.0:3000/sse`
 - **Health Check**: `http://0.0.0.0:3000/health`
 
-## 8. Deploy on OpenShift
+## 9. Deploy on OpenShift
 
 The project includes complete OpenShift deployment configurations in the `openshift/` directory:
 
@@ -237,7 +313,7 @@ Once the server is running, it will be available at:
 - **Resources**: 1 CPU, 1Gi memory
 - **Health Checks**: Liveness and readiness probes configured
 
-## 9. Examples
+## 10. Examples
 
 ### FastMCP Client Example
 
