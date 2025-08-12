@@ -264,6 +264,14 @@ class Settings(BaseSettings):
             "example": "development",
         },
     )
+    COMPATIBLE_WITH_CURSOR: bool = Field(
+        default=False,
+        json_schema_extra={
+            "env": "COMPATIBLE_WITH_CURSOR",
+            "description": "Whether the MCP server is compatible with Cursor OAuth2 flow",
+            "example": True,
+        },
+    )
 
 
 def validate_config(settings: Settings) -> None:

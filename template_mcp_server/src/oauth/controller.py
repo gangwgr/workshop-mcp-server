@@ -292,17 +292,26 @@ async def handle_authorization_code_grant(
         )
 
     # Validate client credentials
-    client = await oauth_service.validate_client(
-        token_request.client_id, token_request.client_secret
-    )
-    if not client:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_client",
-                "error_description": "Invalid client credentials",
-            },
+    if not settings.COMPATIBLE_WITH_CURSOR:
+        if token_request.client_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client ID is required",
+                },
+            )
+        client = await oauth_service.validate_client(
+            token_request.client_id, token_request.client_secret
         )
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Invalid client credentials",
+                },
+            )
 
     # Verify redirect URI matches
     if token_request.redirect_uri != code_data["redirect_uri"]:
@@ -314,17 +323,18 @@ async def handle_authorization_code_grant(
             },
         )
 
-    # Verify PKCE
-    if not verify_code_challenge(
-        token_request.code_verifier, code_data["code_challenge"]
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_grant",
-                "error_description": "Invalid code verifier",
-            },
-        )
+    if not settings.COMPATIBLE_WITH_CURSOR:
+        # Verify PKCE
+        if not verify_code_challenge(
+            token_request.code_verifier, code_data["code_challenge"]
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_grant",
+                    "error_description": "Invalid code verifier",
+                },
+            )
 
     # Mark the code as used
     await oauth_service.mark_code_as_used(token_request.code)
@@ -366,18 +376,27 @@ async def handle_refresh_token_grant_pydantic(
             },
         )
 
-    # Validate client credentials
-    client = await oauth_service.validate_client(
-        token_request.client_id, token_request.client_secret
-    )
-    if not client:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_client",
-                "error_description": "Invalid client credentials",
-            },
+    # Validate client credentials (only if not in Cursor compatibility mode)
+    if not settings.COMPATIBLE_WITH_CURSOR:
+        if token_request.client_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client ID is required",
+                },
+            )
+        client = await oauth_service.validate_client(
+            token_request.client_id, token_request.client_secret
         )
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Invalid client credentials",
+                },
+            )
 
     # Use Snowflake refresh token if available
     snowflake_refresh_token = refresh_data.get("snowflake_refresh_token")
@@ -415,18 +434,27 @@ async def handle_client_credentials_grant_pydantic(
     token_request: ClientCredentialsTokenRequest, oauth_service: OAuthService
 ) -> Dict[str, Any]:
     """Handle client credentials grant with Pydantic validation."""
-    # Validate client credentials
-    client = await oauth_service.validate_client(
-        token_request.client_id, token_request.client_secret
-    )
-    if not client:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_client",
-                "error_description": "Invalid client credentials",
-            },
+    # Validate client credentials (only if not in Cursor compatibility mode)
+    if not settings.COMPATIBLE_WITH_CURSOR:
+        if token_request.client_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client ID is required",
+                },
+            )
+        client = await oauth_service.validate_client(
+            token_request.client_id, token_request.client_secret
         )
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Invalid client credentials",
+                },
+            )
 
     # Generate access token for client credentials flow
     return {

@@ -221,7 +221,12 @@ MCP_TRANSPORT_PROTOCOL=http
 PYTHON_LOG_LEVEL=INFO
 ```
 
-### 5.1 Transport Protocol
+## 6. Security Considerations
+
+⚠️ **IMPORTANT**: This server includes an OAuth2 compatibility mode (`COMPATIBLE_WITH_CURSOR`) that significantly reduces security to accommodate certain clients like cursor.
+
+
+### 6.1 Transport Protocol
 
 The server supports multiple transport protocols that can be configured via the `MCP_TRANSPORT_PROTOCOL` environment variable:
 

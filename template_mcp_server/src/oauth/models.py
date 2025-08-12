@@ -4,12 +4,18 @@ from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
+from template_mcp_server.src.settings import settings
+
 
 class TokenRequestBase(BaseModel):
     """Base class for all token requests."""
 
     grant_type: str = Field(..., description="OAuth 2.0 grant type")
-    client_id: str = Field(..., description="OAuth client identifier")
+
+    client_id: Optional[str] = Field(
+        None if getattr(settings, "COMPATIBLE_WITH_CURSOR", False) else ...,
+        description="OAuth client identifier",
+    )
     client_secret: Optional[str] = Field(None, description="OAuth client secret")
 
 
