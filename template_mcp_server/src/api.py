@@ -47,13 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize storage service before starting
     logger.info("Initializing storage service...")
     try:
-        from template_mcp_server.src.oauth.service import initialize_storage
+        if settings.ENABLE_AUTH:
+            from template_mcp_server.src.oauth.service import initialize_storage
 
-        storage_service = await initialize_storage()
-        logger.info("Storage service initialized successfully")
+            storage_service = await initialize_storage()
+            logger.info("Storage service initialized successfully")
 
-        oauth_service_instance = OAuthService(storage_service)
-        logger.info("OAuth service initialized with dependency injection")
+            oauth_service_instance = OAuthService(storage_service)
+            logger.info("OAuth service initialized with dependency injection")
     except Exception as e:
         logger.critical(f"Failed to initialize storage service: {e}")
         raise
@@ -83,6 +84,9 @@ class AuthorizationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable):
         """Process incoming requests and apply OAuth authorization checks."""
+        if not settings.ENABLE_AUTH:
+            return await call_next(request)
+
         public_paths = {
             "/.well-known/oauth-protected-resource",
             "/.well-known/oauth-authorization-server",
