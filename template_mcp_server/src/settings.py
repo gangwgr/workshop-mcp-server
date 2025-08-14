@@ -272,6 +272,14 @@ class Settings(BaseSettings):
             "example": True,
         },
     )
+    ENABLE_AUTH: bool = Field(
+        default=True,
+        json_schema_extra={
+            "env": "ENABLE_AUTH",
+            "description": "Enable authentication for the MCP server",
+            "example": "true",
+        },
+    )
 
 
 def validate_config(settings: Settings) -> None:
