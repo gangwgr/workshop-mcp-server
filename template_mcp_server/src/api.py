@@ -217,7 +217,7 @@ class LocalDevelopmentAuthorizationMiddleware(BaseHTTPMiddleware):
             )
 
 
-if settings.USE_EXTERNAL_BROWSER_AUTH:
+if settings.USE_EXTERNAL_BROWSER_AUTH and settings.ENABLE_AUTH:
     app.add_middleware(LocalDevelopmentAuthorizationMiddleware)
 else:
     app.add_middleware(AuthorizationMiddleware)
