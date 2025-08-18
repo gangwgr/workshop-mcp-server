@@ -245,9 +245,15 @@ class TestOAuthControllerHandleToken:
         oauth_service.validate_client = AsyncMock(return_value={"id": "client123"})
         oauth_service.mark_code_as_used = AsyncMock()
 
-        with patch(
-            "template_mcp_server.src.oauth.controller.verify_code_challenge",
-            return_value=True,
+        with (
+            patch(
+                "template_mcp_server.src.oauth.controller.verify_code_challenge",
+                return_value=True,
+            ),
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
         ):
             result = await controller.handle_token(mock_request, oauth_service)
 
@@ -358,9 +364,15 @@ class TestOAuthControllerHandleToken:
         oauth_service.validate_authorization_code = AsyncMock(return_value=code_data)
         oauth_service.validate_client = AsyncMock(return_value={"id": "client123"})
 
-        with patch(
-            "template_mcp_server.src.oauth.controller.verify_code_challenge",
-            return_value=False,
+        with (
+            patch(
+                "template_mcp_server.src.oauth.controller.verify_code_challenge",
+                return_value=False,
+            ),
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await controller.handle_token(mock_request, oauth_service)
@@ -738,7 +750,13 @@ class TestAuthorizationCodeGrantEdgeCases:
         }
         oauth_service.validate_client.return_value = None
 
-        with pytest.raises(HTTPException) as exc_info:
+        with (
+            pytest.raises(HTTPException) as exc_info,
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
+        ):
             await controller.handle_authorization_code_grant(
                 token_request, oauth_service
             )
@@ -808,9 +826,15 @@ class TestAuthorizationCodeGrantEdgeCases:
         }
         oauth_service.validate_client.return_value = {"id": "test_client"}
 
-        with patch(
-            "template_mcp_server.src.oauth.controller.verify_code_challenge"
-        ) as mock_verify:
+        with (
+            patch(
+                "template_mcp_server.src.oauth.controller.verify_code_challenge"
+            ) as mock_verify,
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
+        ):
             mock_verify.return_value = False
 
             with pytest.raises(HTTPException) as exc_info:
@@ -966,7 +990,13 @@ class TestRefreshTokenGrantEdgeCases:
         }
         oauth_service.validate_client.return_value = None
 
-        with pytest.raises(HTTPException) as exc_info:
+        with (
+            pytest.raises(HTTPException) as exc_info,
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
+        ):
             await controller.handle_refresh_token_grant_pydantic(
                 token_request, oauth_service
             )
@@ -1106,7 +1136,13 @@ class TestClientCredentialsGrantEdgeCases:
         oauth_service = AsyncMock(spec=OAuthService)
         oauth_service.validate_client.return_value = None
 
-        with pytest.raises(HTTPException) as exc_info:
+        with (
+            pytest.raises(HTTPException) as exc_info,
+            patch(
+                "template_mcp_server.src.oauth.controller.settings.COMPATIBLE_WITH_CURSOR",
+                False,
+            ),
+        ):
             await controller.handle_client_credentials_grant_pydantic(
                 token_request, oauth_service
             )
