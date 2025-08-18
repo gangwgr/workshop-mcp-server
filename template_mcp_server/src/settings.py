@@ -265,7 +265,7 @@ class Settings(BaseSettings):
         },
     )
     COMPATIBLE_WITH_CURSOR: bool = Field(
-        default=False,
+        default=True,
         json_schema_extra={
             "env": "COMPATIBLE_WITH_CURSOR",
             "description": "Whether the MCP server is compatible with Cursor OAuth2 flow",
@@ -273,7 +273,7 @@ class Settings(BaseSettings):
         },
     )
     ENABLE_AUTH: bool = Field(
-        default=True,
+        default=False,
         json_schema_extra={
             "env": "ENABLE_AUTH",
             "description": "Enable authentication for the MCP server",

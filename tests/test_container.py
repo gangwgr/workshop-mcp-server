@@ -113,7 +113,9 @@ class TestContainerExecution:
             "--name",
             container_name,
             "-p",
-            "3001:3000",
+            "3001:8080",
+            "-e",
+            "ENABLE_AUTH=False",
             image_name,
         ]
         stop_cmd = ["podman", "stop", container_name]
@@ -136,13 +138,19 @@ class TestContainerExecution:
             # Wait for container to start
             time.sleep(5)
 
-            # Test that container is responding (may be 404 if no root endpoint)
+            # Test that container is responding via health endpoint
             with httpx.Client() as client:
-                response = client.get("http://localhost:3001/", timeout=10)
+                response = client.get("http://localhost:3001/health", timeout=10)
 
-                # Accept any HTTP response (404, 200, etc.) - just confirm server is listening
-                assert response.status_code >= 200, (
-                    f"Server not responding: {response.status_code}"
+                # Health endpoint should return 200
+                assert response.status_code == 200, (
+                    f"Health endpoint not responding: {response.status_code}"
+                )
+
+                # Verify health response contains expected status
+                health_data = response.json()
+                assert health_data.get("status") == "healthy", (
+                    f"Unexpected health status: {health_data}"
                 )
 
         finally:

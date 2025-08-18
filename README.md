@@ -212,13 +212,32 @@ Below is a snapshot of the .env.template file:
 ```env
 # MCP Server Configuration
 MCP_HOST=0.0.0.0
-MCP_PORT=3000
+MCP_PORT=8080
 MCP_TRANSPORT_PROTOCOL=http
 # MCP_SSL_KEYFILE=/path/to/ssl_key.pem
 # MCP_SSL_CERTFILE=/path/to/ssl_cert.pem
 
+ENABLE_AUTH=False
+USE_EXTERNAL_BROWSER_AUTH=False
+
+# Set this to True if you need to plug it into cursor
+COMPATIBLE_WITH_CURSOR=True
+
 # Python Logging
 PYTHON_LOG_LEVEL=INFO
+
+# This is required only if ENABLE_AUTH is True
+SSO_CLIENT_ID=sso_client_id
+SSO_CLIENT_SECRET=sso_client_secret
+SSO_ISSUER_HOST=https://auth.redhat.com/auth/realms/EmployeeIDP
+SSO_CALLBACK_URL=http://localhost:8080/auth/callback/oidc
+
+#  This is required only if ENABLE_AUTH is True
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 ```
 
 ## 6. Security Considerations
@@ -270,13 +289,13 @@ Once the server is running, it will be available at:
 
 ### 8.1 HTTP Protocol (http/streamable-http)
 
-- **MCP Server**: `http://0.0.0.0:3000/mcp`
-- **Health Check**: `http://0.0.0.0:3000/health`
+- **MCP Server**: `http://0.0.0.0:8080/mcp`
+- **Health Check**: `http://0.0.0.0:8080/health`
 
 ### 8.2 SSE Protocol
 
-- **SSE Endpoint**: `http://0.0.0.0:3000/sse`
-- **Health Check**: `http://0.0.0.0:3000/health`
+- **SSE Endpoint**: `http://0.0.0.0:8080/sse`
+- **Health Check**: `http://0.0.0.0:8080/health`
 
 ## 9. Deploy on OpenShift
 
