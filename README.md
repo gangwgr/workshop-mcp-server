@@ -163,6 +163,14 @@ Then start customizing by:
 
 - Python 3.12 or higher
 - uv (install from https://docs.astral.sh/uv/getting-started/installation/)
+- Podman & Podman Desktop (MacOS) -- Need Podman Desktop to install "podman-mac-helper". The "podman-mac-helper" is a utility that facilitates Docker compatibility when using Podman on macOS. It allows users to run Docker commands and tools, like Maven or Testcontainers, without needing to reconfigure them to work with Podman. Essentially, it provides a bridge between the Podman engine and the Docker socket, enabling seamless integration
+```bash
+# Install podman
+brew install podman
+
+# Install Podman Desktop
+brew install --cask podman-desktop
+```
 
 ### Install from source
 
@@ -259,7 +267,7 @@ The server supports multiple transport protocols that can be configured via the 
 Before running the server locally, make sure a PostgreSQL service is running and accessible. If you don't already have one running, you can start the included PostgreSQL container with:
 
 ```bash
-podman-compose up -d postgres
+podman compose up -d postgres
 ```
 
 ### Method 1: Using Python directly
@@ -267,6 +275,9 @@ podman-compose up -d postgres
 ```bash
 # Run the server
 python -m template_mcp_server.src.main
+
+#Example: Replace the value in quotes to match your local project
+python -m "your_project_name".src.main
 ```
 
 ### Method 2: Using the installed script
@@ -339,6 +350,20 @@ Once the server is running, it will be available at:
 
 ## 10. Examples
 
+### Prerequisites
+Run the exammples via another shell session in a venv
+You can create another venv by doing the following:
+```bash
+# Create a new venv with a different name from what you are running your server from
+uv venv client-examples-venv --python 3.12
+
+# Activate new venv
+source client-examples-venv/bin/activate
+
+# Install packages the examples need to run
+`uv pip install fastmcp==2.11.3 httpx==0.28.1 langchain-google-genai==2.1.9 langchain-mcp-adapters==0.1.9 langgraph==0.6.6`
+```
+
 ### FastMCP Client Example
 
 ```bash
@@ -353,6 +378,14 @@ This example demonstrates:
 - Asset retrieval functionality
 
 ### LangGraph Client Example
+
+Prerequisites:
+- Template MCP server must be running on http://0.0.0.0:8080
+- Google Generative AI credentials must be configured via
+    GEMINI_API_KEY environment variable or
+    GOOGLE_APPLICATION_CREDENTIALS environment variable
+- All required Python packages must be installed
+- Required dependencies: langchain-google-genai, langchain-mcp-adapters, langgraph
 
 ```bash
 # Run the LangGraph client example
