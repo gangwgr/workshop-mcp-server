@@ -9,6 +9,15 @@
         <p>AI-powered cluster diagnostics with automated test case generation</p>
     </div>
 
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
     <div class="review-container">
         <div class="review-form">
             <h3>Describe Cluster Issue</h3>
@@ -171,6 +180,22 @@ $(document).ready(function() {
         });
     });
 
+    function formatMarkdown(text) {
+        if (!text) return '';
+        let html = text;
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.85rem;"><code>$2</code></pre>');
+        html = html.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 6px;border-radius:3px;font-size:0.85em;">$1</code>');
+        html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+        html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
+        html = html.replace(/\n\n/g, '</p><p>');
+        html = html.replace(/\n/g, '<br>');
+        return '<p>' + html + '</p>';
+    }
+
     function displayResults(result) {
         if (result.status === 'error') {
             alert('Error: ' + result.error);
@@ -179,6 +204,27 @@ $(document).ready(function() {
 
         // Store diagnostic context for chat
         window.diagnosticContext = result;
+
+        // Handle LLM-powered analysis
+        if (result.mode === 'llm' && result.llm_analysis) {
+            let html = `
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid #805ad5;">
+                    <h3 style="margin-top: 0; color: #2d3748;">🤖 AI-Powered Cluster Analysis (llama3)</h3>
+                    <p style="color: #718096; font-size: 0.875rem;">Issue: ${escapeHtml(result.issue_description || '')}</p>
+                </div>
+                <div style="margin-top: 1.5rem; padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                    ${formatMarkdown(result.llm_analysis)}
+                </div>
+            `;
+            $('#validationResults').html('');
+            $('#issueAnalysis').html(html);
+            $('#diagnosticSummary').html('');
+            $('#fixRecommendations').html('');
+            $('#suggestedCommands').html('');
+            $('#debugResults').show();
+            $('html, body').animate({ scrollTop: $('#debugResults').offset().top - 20 }, 500);
+            return;
+        }
 
         // Display validation results
         displayValidationResults(result.validation_results);

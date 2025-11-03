@@ -63,6 +63,28 @@ class OCPClusterDebuggerAgent:
             if kubeconfig_path:
                 self.kubeconfig_path = kubeconfig_path
 
+            # Try LLM-powered debugging first for enhanced analysis
+            try:
+                from workshop_mcp_server.src.tools.llm_provider import debug_cluster_issue as llm_debug, is_available
+                if is_available():
+                    llm_result = llm_debug(
+                        issue=issue_description,
+                        namespace=namespace or "",
+                        component=component or "",
+                    )
+                    if llm_result:
+                        logger.info("LLM-enhanced cluster debug completed")
+                        return {
+                            "status": "success",
+                            "mode": "llm",
+                            "issue_description": issue_description,
+                            "llm_analysis": llm_result,
+                            "message": "AI-powered cluster debugging (llama3)",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+            except Exception as llm_err:
+                logger.warning(f"LLM debug unavailable, using built-in analysis: {llm_err}")
+
             # Validate inputs
             validation = self._validate_inputs(namespace, component)
 

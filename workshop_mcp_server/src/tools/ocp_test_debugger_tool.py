@@ -57,6 +57,28 @@ def debug_ocp_test_failure(
 
         logger.info("Starting intelligent test failure debugging")
 
+        # Try LLM-powered debugging
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import debug_cluster_issue as llm_debug, is_available
+            if is_available():
+                import json
+                issue_summary = json.dumps(test_results, indent=2, default=str)[:3000]
+                llm_result = llm_debug(
+                    issue=f"Test failure analysis for {feature or 'unknown'} / {component or 'unknown'}",
+                    diagnostic_data=issue_summary,
+                )
+                if llm_result:
+                    return {
+                        "status": "success",
+                        "mode": "llm",
+                        "llm_analysis": llm_result,
+                        "feature": feature or "unknown",
+                        "component": component or "unknown",
+                        "message": "AI-powered test failure debugging (llama3)",
+                    }
+        except Exception as llm_err:
+            logger.warning(f"LLM debug unavailable, using built-in: {llm_err}")
+
         # Extract execution data
         execution = test_results.get("execution", {})
         if not execution:

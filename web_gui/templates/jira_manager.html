@@ -1,0 +1,1016 @@
+{% extends "base.html" %}
+
+{% block title %}Jira Manager - AI Test Engineer{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header" style="margin-bottom:1rem;">
+        <h1 style="font-size:1.5rem;margin-bottom:0.25rem;"><i class="fab fa-jira"></i> Jira Manager</h1>
+        <p style="margin:0;font-size:0.85rem;color:#718096;">Fetch, analyze, and generate test artifacts from Jira issues</p>
+    </div>
+
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.5rem 0.75rem;background:linear-gradient(135deg,#f7fafc,#edf2f7);border:1px solid #e2e8f0;border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.8rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.25rem 0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
+    <!-- Tab Navigation -->
+    <ul style="list-style:none;display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:0;padding:0;flex-wrap:wrap;">
+        <li><a href="#" class="jira-tab active" data-tab="config" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-cog"></i> Config</a></li>
+        <li><a href="#" class="jira-tab" data-tab="issue" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-ticket-alt"></i> Issue</a></li>
+        <li><a href="#" class="jira-tab" data-tab="search" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-search"></i> Search</a></li>
+        <li><a href="#" class="jira-tab" data-tab="bugs" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-bug"></i> Bugs</a></li>
+        <li><a href="#" class="jira-tab" data-tab="team" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-users"></i> Team</a></li>
+        <li><a href="#" class="jira-tab" data-tab="myissues" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-user-check"></i> My Issues</a></li>
+        <li><a href="#" class="jira-tab" data-tab="actions" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-bolt"></i> Actions</a></li>
+        <li><a href="#" class="jira-tab" data-tab="testgen" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-robot"></i> AI Tests</a></li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 0.5rem 0.5rem;padding:1.25rem;background:white;min-height:320px;">
+
+        <!-- Config Tab -->
+        <div class="jira-tab-content" id="tab-config">
+            <form id="jiraConfigForm">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                    <div class="form-group" style="grid-column:span 2;">
+                        <label for="jiraBaseUrl" style="font-size:0.8rem;font-weight:600;">Jira Server URL *</label>
+                        <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-company.atlassian.net" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label for="jiraUsername" style="font-size:0.8rem;font-weight:600;">Username/Email *</label>
+                        <input type="text" id="jiraUsername" name="jiraUsername" placeholder="your-email@company.com" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label for="jiraApiToken" style="font-size:0.8rem;font-weight:600;">API Token *</label>
+                        <input type="password" id="jiraApiToken" name="jiraApiToken" placeholder="Jira API token" style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                </div>
+                <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+                    <button type="submit" class="btn btn-success" style="padding:0.4rem 1rem;font-size:0.8rem;"><i class="fas fa-plug"></i> Connect</button>
+                    <button type="button" id="clearCredentials" class="btn btn-secondary" style="padding:0.4rem 1rem;font-size:0.8rem;"><i class="fas fa-eraser"></i> Clear</button>
+                </div>
+            </form>
+            <div id="connectionStatus" style="display:none;margin-top:0.75rem;"></div>
+        </div>
+
+        <!-- Issue Tab -->
+        <div class="jira-tab-content" id="tab-issue" style="display:none;">
+            <form id="getIssueForm">
+                <div style="display:flex;gap:0.75rem;align-items:flex-end;">
+                    <div class="form-group" style="flex:1;">
+                        <label for="issueId" style="font-size:0.8rem;font-weight:600;">Issue ID *</label>
+                        <input type="text" id="issueId" name="issueId" placeholder="e.g., ABC-123" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="padding:0.5rem 1rem;font-size:0.8rem;white-space:nowrap;"><i class="fas fa-search"></i> Get Details</button>
+                </div>
+            </form>
+            <div id="issueResults" style="display:none;margin-top:1rem;"></div>
+        </div>
+
+        <!-- Search Tab -->
+        <div class="jira-tab-content" id="tab-search" style="display:none;">
+            <form id="searchIssuesForm">
+                <div class="form-group">
+                    <label for="jqlQuery" style="font-size:0.8rem;font-weight:600;">JQL Query *</label>
+                    <textarea id="jqlQuery" name="jqlQuery" rows="2" placeholder="project = ABC AND status = Open" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex;gap:0.75rem;align-items:center;margin-top:0.5rem;">
+                    <select id="maxResults" name="maxResults" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                        <option value="10">10 results</option>
+                        <option value="20" selected>20 results</option>
+                        <option value="50">50 results</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;"><i class="fas fa-search"></i> Search</button>
+                </div>
+            </form>
+            <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.4rem;">
+                <span onclick="fillJQLExample('project = MYPROJ AND type = Bug AND priority in (High, Highest)')" style="padding:0.25rem 0.6rem;background:#fed7d7;color:#9b2c2c;border-radius:9999px;font-size:0.7rem;cursor:pointer;">High Bugs</span>
+                <span onclick="fillJQLExample('assignee = currentUser() AND status != Done')" style="padding:0.25rem 0.6rem;background:#bee3f8;color:#2a4365;border-radius:9999px;font-size:0.7rem;cursor:pointer;">My Issues</span>
+                <span onclick="fillJQLExample('created >= -7d AND type = Story')" style="padding:0.25rem 0.6rem;background:#c6f6d5;color:#276749;border-radius:9999px;font-size:0.7rem;cursor:pointer;">Recent Stories</span>
+                <span onclick="fillJQLExample('component in (Frontend, API) AND status = \"In Progress\"')" style="padding:0.25rem 0.6rem;background:#fefcbf;color:#975a16;border-radius:9999px;font-size:0.7rem;cursor:pointer;">In Progress</span>
+            </div>
+            <div id="searchResults" style="display:none;margin-top:1rem;"></div>
+        </div>
+
+        <!-- Bugs Tab -->
+        <div class="jira-tab-content" id="tab-bugs" style="display:none;">
+            <form id="highPriorityForm">
+                <div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="form-group" style="flex:1;min-width:150px;">
+                        <label for="bugTeam" style="font-size:0.8rem;font-weight:600;">Team/Project</label>
+                        <input type="text" id="bugTeam" name="bugTeam" placeholder="e.g., MyProject" style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label for="bugDays" style="font-size:0.8rem;font-weight:600;">Days</label>
+                        <select id="bugDays" name="bugDays" style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;">
+                            <option value="7">7</option>
+                            <option value="14">14</option>
+                            <option value="30" selected>30</option>
+                            <option value="60">60</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-warning" style="padding:0.5rem 1rem;font-size:0.8rem;white-space:nowrap;"><i class="fas fa-bug"></i> Find Bugs</button>
+                </div>
+            </form>
+            <div id="bugsResults" style="display:none;margin-top:1rem;"></div>
+        </div>
+
+        <!-- Team Tab -->
+        <div class="jira-tab-content" id="tab-team" style="display:none;">
+            <form id="teamIssuesForm">
+                <div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="form-group" style="flex:1;min-width:150px;">
+                        <label for="teamName" style="font-size:0.8rem;font-weight:600;">Team Name *</label>
+                        <input type="text" id="teamName" name="teamName" placeholder="e.g., QA" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label for="teamStatus" style="font-size:0.8rem;font-weight:600;">Status</label>
+                        <select id="teamStatus" name="teamStatus" style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;">
+                            <option value="">All</option>
+                            <option value="Open">Open</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Done">Done</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="teamDays" style="font-size:0.8rem;font-weight:600;">Days</label>
+                        <select id="teamDays" name="teamDays" style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;">
+                            <option value="7">7</option>
+                            <option value="14" selected>14</option>
+                            <option value="30">30</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-info" style="padding:0.5rem 1rem;font-size:0.8rem;white-space:nowrap;"><i class="fas fa-users"></i> Get Issues</button>
+                </div>
+            </form>
+            <div id="teamResults" style="display:none;margin-top:1rem;"></div>
+        </div>
+
+        <!-- My Issues Tab -->
+        <div class="jira-tab-content" id="tab-myissues" style="display:none;">
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;">
+                <select id="myIssuesType" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    <option value="assigned">Assigned to Me</option>
+                    <option value="qa_contact">QA Contact</option>
+                    <option value="reported">Reported by Me</option>
+                    <option value="all_mine">All Mine</option>
+                </select>
+                <select id="myIssuesStatus" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    <option value="">All Status</option>
+                    <option value="Open">Open</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="ON_QA">ON_QA</option>
+                    <option value="To Do">To Do</option>
+                    <option value="Done">Done</option>
+                </select>
+                <button onclick="fetchMyIssues()" class="btn btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;"><i class="fas fa-sync"></i> Fetch</button>
+            </div>
+            <div id="myIssuesResults" style="max-height:400px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- Actions Tab (Comment, Transition, Assign) -->
+        <div class="jira-tab-content" id="tab-actions" style="display:none;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <!-- Add Comment -->
+                <div style="border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+                    <h4 style="font-size:0.85rem;margin-bottom:0.75rem;"><i class="fas fa-comment"></i> Add Comment</h4>
+                    <input type="text" id="commentIssueKey" placeholder="Issue Key (e.g. OCPQE-123)" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;margin-bottom:0.5rem;">
+                    <textarea id="commentText" rows="3" placeholder="Your comment..." style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;resize:vertical;margin-bottom:0.5rem;"></textarea>
+                    <button onclick="addJiraComment()" class="btn btn-success" style="padding:0.35rem 0.75rem;font-size:0.8rem;"><i class="fas fa-paper-plane"></i> Post</button>
+                    <div id="commentResult" style="margin-top:0.5rem;font-size:0.8rem;"></div>
+                </div>
+                <!-- Change Status -->
+                <div style="border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+                    <h4 style="font-size:0.85rem;margin-bottom:0.75rem;"><i class="fas fa-exchange-alt"></i> Change Status</h4>
+                    <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                        <input type="text" id="transitionIssueKey" placeholder="Issue Key" style="flex:1;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                        <button onclick="loadTransitions()" class="btn btn-info" style="padding:0.35rem 0.75rem;font-size:0.8rem;"><i class="fas fa-list"></i> Load</button>
+                    </div>
+                    <select id="transitionSelect" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;margin-bottom:0.5rem;">
+                        <option value="">-- Load transitions first --</option>
+                    </select>
+                    <button onclick="doTransition()" class="btn btn-warning" style="padding:0.35rem 0.75rem;font-size:0.8rem;"><i class="fas fa-check"></i> Transition</button>
+                    <div id="transitionResult" style="margin-top:0.5rem;font-size:0.8rem;"></div>
+                </div>
+            </div>
+            <!-- Assign + View Comments -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
+                <div style="border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+                    <h4 style="font-size:0.85rem;margin-bottom:0.75rem;"><i class="fas fa-user-plus"></i> Assign Issue</h4>
+                    <input type="text" id="assignIssueKey" placeholder="Issue Key" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;margin-bottom:0.5rem;">
+                    <input type="text" id="assignUser" placeholder="Username (e.g. rgangwar)" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;margin-bottom:0.5rem;">
+                    <button onclick="assignJiraIssue()" class="btn btn-primary" style="padding:0.35rem 0.75rem;font-size:0.8rem;"><i class="fas fa-user-check"></i> Assign</button>
+                    <div id="assignResult" style="margin-top:0.5rem;font-size:0.8rem;"></div>
+                </div>
+                <div style="border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+                    <h4 style="font-size:0.85rem;margin-bottom:0.75rem;"><i class="fas fa-comments"></i> View Comments</h4>
+                    <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                        <input type="text" id="viewCommentsKey" placeholder="Issue Key" style="flex:1;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                        <button onclick="viewComments()" class="btn btn-info" style="padding:0.35rem 0.75rem;font-size:0.8rem;"><i class="fas fa-eye"></i> View</button>
+                    </div>
+                    <div id="commentsResult" style="max-height:200px;overflow-y:auto;font-size:0.8rem;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Test Gen Tab -->
+        <div class="jira-tab-content" id="tab-testgen" style="display:none;">
+            <form id="testGenerationForm">
+                <div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="form-group" style="flex:1;min-width:150px;">
+                        <label for="testIssueId" style="font-size:0.8rem;font-weight:600;">Issue ID *</label>
+                        <input type="text" id="testIssueId" name="testIssueId" placeholder="e.g., ABC-123" required style="padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;width:100%;font-size:0.85rem;">
+                    </div>
+                    <button type="submit" class="btn btn-success" style="padding:0.5rem 1rem;font-size:0.8rem;white-space:nowrap;"><i class="fas fa-magic"></i> Generate Tests</button>
+                    <button type="button" id="generateTestPlan" class="btn btn-secondary" style="padding:0.5rem 1rem;font-size:0.8rem;white-space:nowrap;"><i class="fas fa-clipboard-list"></i> Test Plan</button>
+                </div>
+                <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+                    <label style="font-size:0.8rem;"><input type="checkbox" name="testTypes" value="functional" checked> Functional</label>
+                    <label style="font-size:0.8rem;"><input type="checkbox" name="testTypes" value="edge" checked> Edge Cases</label>
+                    <label style="font-size:0.8rem;"><input type="checkbox" name="testTypes" value="negative" checked> Negative</label>
+                    <label style="font-size:0.8rem;"><input type="checkbox" name="testTypes" value="regression" checked> Regression</label>
+                </div>
+            </form>
+            <div id="testCasesResults" style="display:none;margin-top:1rem;"></div>
+            <div id="testPlanResults" style="display:none;margin-top:1rem;"></div>
+        </div>
+    </div>
+
+    <!-- Chat Panel -->
+    <div style="margin-top:1rem;border:1px solid #e2e8f0;border-radius:0.5rem;background:white;overflow:hidden;">
+        <div onclick="$('#chatBody').toggle();$('#chatIcon').toggleClass('fa-chevron-up fa-chevron-down')" style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 1rem;background:linear-gradient(135deg,#2d3748,#4a5568);color:white;cursor:pointer;">
+            <span style="font-size:0.85rem;"><i class="fas fa-comments"></i> <strong>AI Chat</strong> — JQL help, test planning, issue analysis</span>
+            <i id="chatIcon" class="fas fa-chevron-up" style="font-size:0.75rem;"></i>
+        </div>
+        <div id="chatBody">
+            <div id="chatMsgs" style="height:180px;overflow-y:auto;padding:0.6rem;border-bottom:1px solid #edf2f7;font-size:0.85rem;"></div>
+            <form id="chatForm" style="display:flex;gap:0.5rem;padding:0.6rem;">
+                <input type="text" id="chatInput" style="flex:1;padding:0.4rem 0.6rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;" placeholder="Ask about JQL queries, test strategies...">
+                <button type="submit" style="padding:0.4rem 0.75rem;background:#4299e1;color:white;border:none;border-radius:0.375rem;cursor:pointer;font-size:0.8rem;"><i class="fas fa-paper-plane"></i></button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Tab switching
+$(document).ready(function(){
+    $('.jira-tab').on('click', function(e){
+        e.preventDefault();
+        $('.jira-tab').removeClass('active').css({'border-bottom-color':'transparent','color':'#4a5568'});
+        $(this).addClass('active').css({'border-bottom-color':'#4299e1','color':'#2b6cb0'});
+        $('.jira-tab-content').hide();
+        $('#tab-'+$(this).data('tab')).show();
+    });
+    $('.jira-tab.active').css({'border-bottom-color':'#4299e1','color':'#2b6cb0'});
+});
+
+// Global credentials object
+let jiraCredentials = {
+    base_url: '',
+    username: '', 
+    api_token: '',
+    password: ''
+};
+
+// Load saved credentials from localStorage
+function loadSavedCredentials() {
+    const saved = localStorage.getItem('jiraCredentials');
+    if (saved) {
+        const creds = JSON.parse(saved);
+        document.getElementById('jiraBaseUrl').value = creds.base_url || '';
+        document.getElementById('jiraUsername').value = creds.username || '';
+        if (creds.api_token) document.getElementById('jiraApiToken').value = creds.api_token;
+        jiraCredentials = creds;
+    }
+}
+
+// Save credentials to localStorage (including token for session persistence)
+function saveCredentials() {
+    const credsToSave = {
+        base_url: jiraCredentials.base_url,
+        username: jiraCredentials.username,
+        api_token: jiraCredentials.api_token || '',
+        password: ''
+    };
+    localStorage.setItem('jiraCredentials', JSON.stringify(credsToSave));
+}
+
+// Get current credentials from form
+function getCurrentCredentials() {
+    var pwEl = document.getElementById('jiraPassword');
+    return {
+        base_url: document.getElementById('jiraBaseUrl').value.trim() || jiraCredentials.base_url || '',
+        username: document.getElementById('jiraUsername').value.trim() || jiraCredentials.username || '',
+        api_token: document.getElementById('jiraApiToken').value.trim() || jiraCredentials.api_token || '',
+        password: pwEl ? pwEl.value.trim() : ''
+    };
+}
+
+// Check if credentials are configured
+function areCredentialsConfigured() {
+    const creds = getCurrentCredentials();
+    return creds.base_url && creds.username && (creds.api_token || creds.password);
+}
+
+// Jira Configuration Form
+document.getElementById('jiraConfigForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    // Validate required fields
+    if (!data.jiraBaseUrl || !data.jiraUsername) {
+        displayConnectionStatus({
+            status: 'error',
+            error: 'Base URL and Username are required'
+        });
+        return;
+    }
+    
+    if (!data.jiraApiToken && !(data.jiraPassword || '')) {
+        displayConnectionStatus({
+            status: 'error',
+            error: 'API Token is required'
+        });
+        return;
+    }
+    
+    showLoading('connectionStatus');
+    
+    try {
+        const response = await fetch('/api/jira-test-connection', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                base_url: data.jiraBaseUrl,
+                username: data.jiraUsername,
+                api_token: data.jiraApiToken,
+                password: data.jiraPassword || ''
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            // Update global credentials
+            jiraCredentials = {
+                base_url: data.jiraBaseUrl,
+                username: data.jiraUsername,
+                api_token: data.jiraApiToken,
+                password: data.jiraPassword || ''
+            };
+            saveCredentials();
+        }
+        
+        displayConnectionStatus(result);
+    } catch (error) {
+        displayConnectionStatus({
+            status: 'error', 
+            error: 'Failed to test connection: ' + error.message
+        });
+    }
+});
+
+// Clear credentials
+document.getElementById('clearCredentials').addEventListener('click', function() {
+    document.getElementById('jiraConfigForm').reset();
+    jiraCredentials = { base_url: '', username: '', api_token: '', password: '' };
+    localStorage.removeItem('jiraCredentials');
+    document.getElementById('connectionStatus').style.display = 'none';
+});
+
+// Display connection test results
+function displayConnectionStatus(result) {
+    const container = document.getElementById('connectionStatus');
+    container.style.display = 'block';
+    
+    if (result.status === 'success') {
+        const userInfo = result.user_info;
+        const serverInfo = result.server_info;
+        
+        container.innerHTML = `
+            <div class="alert alert-success">
+                <h4><i class="fas fa-check-circle"></i> Connection Successful!</h4>
+                <div class="connection-info">
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>👤 User:</strong> ${userInfo.display_name} (${userInfo.email})
+                        </div>
+                        <div class="info-item">
+                            <strong>🔗 Server:</strong> ${serverInfo.base_url}
+                        </div>
+                        <div class="info-item">
+                            <strong>🔐 Auth Type:</strong> ${serverInfo.auth_type}
+                        </div>
+                    </div>
+                </div>
+                <p><i class="fas fa-info-circle"></i> Credentials are now configured. You can use all Jira features below.</p>
+            </div>
+        `;
+    } else {
+        let suggestionsHtml = '';
+        if (result.suggestions && result.suggestions.length > 0) {
+            suggestionsHtml = `
+                <div class="error-suggestions">
+                    <h5><i class="fas fa-lightbulb"></i> Suggestions:</h5>
+                    <ul>
+                        ${result.suggestions.map(suggestion => `<li>${suggestion}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = `
+            <div class="alert alert-error">
+                <h4><i class="fas fa-exclamation-triangle"></i> Connection Failed</h4>
+                <p><strong>Error:</strong> ${result.error}</p>
+                ${suggestionsHtml}
+                <small>Please check your credentials and server URL, or try the suggestions above.</small>
+            </div>
+        `;
+    }
+}
+
+// Load saved credentials on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadSavedCredentials();
+});
+
+// Get Issue Form
+document.getElementById('getIssueForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    if (!areCredentialsConfigured()) {
+        alert('Please configure your Jira credentials first in the Configuration section above.');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    const creds = getCurrentCredentials();
+    
+    showLoading('issueResults');
+    
+    try {
+        const response = await fetch('/api/jira-get-issue', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                issue_id: data.issueId,
+                ...creds
+            })
+        });
+        
+        const result = await response.json();
+        displayIssueResults(result);
+    } catch (error) {
+        displayError('issueResults', 'Failed to fetch issue: ' + error.message);
+    }
+});
+
+// Search Issues Form
+document.getElementById('searchIssuesForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    if (!areCredentialsConfigured()) {
+        alert('Please configure your Jira credentials first in the Configuration section above.');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    const creds = getCurrentCredentials();
+    
+    showLoading('searchResults');
+    
+    try {
+        const response = await fetch('/api/jira-search-issues', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                query: data.jqlQuery,
+                max_results: parseInt(data.maxResults),
+                ...creds
+            })
+        });
+        
+        const result = await response.json();
+        displaySearchResults(result);
+    } catch (error) {
+        displayError('searchResults', 'Failed to search issues: ' + error.message);
+    }
+});
+
+// High Priority Bugs Form
+document.getElementById('highPriorityForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    showLoading('bugsResults');
+    
+    try {
+        const result = await makeJiraApiCall('/api/jira-high-priority-bugs', {
+            team: data.bugTeam,
+            days: parseInt(data.bugDays)
+        });
+        
+        displaySearchResults(result, 'bugsResults');
+    } catch (error) {
+        displayError('bugsResults', error.message);
+    }
+});
+
+// Team Issues Form
+document.getElementById('teamIssuesForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    showLoading('teamResults');
+    
+    try {
+        const result = await makeJiraApiCall('/api/jira-team-issues', {
+            team_name: data.teamName,
+            status: data.teamStatus,
+            days: parseInt(data.teamDays)
+        });
+        
+        displaySearchResults(result, 'teamResults');
+    } catch (error) {
+        displayError('teamResults', error.message);
+    }
+});
+
+// Helper function to make API calls with credentials
+async function makeJiraApiCall(url, data) {
+    if (!areCredentialsConfigured()) {
+        throw new Error('Please configure your Jira credentials first in the Configuration section above.');
+    }
+    
+    const creds = getCurrentCredentials();
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...data, ...creds})
+    });
+    
+    return response.json();
+}
+
+// Test Generation Form
+document.getElementById('testGenerationForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const testTypes = Array.from(document.querySelectorAll('input[name="testTypes"]:checked')).map(cb => cb.value);
+    
+    showLoading('testCasesResults');
+    
+    try {
+        const result = await makeJiraApiCall('/api/jira-generate-test-cases', {
+            issue_id: formData.get('testIssueId'),
+            test_types: testTypes
+        });
+        
+        displayTestCasesResults(result);
+    } catch (error) {
+        displayError('testCasesResults', error.message);
+    }
+});
+
+// Generate Test Plan Button
+document.getElementById('generateTestPlan').addEventListener('click', async function() {
+    const issueId = document.getElementById('testIssueId').value.trim();
+    
+    if (!issueId) {
+        alert('Please enter an Issue ID first');
+        return;
+    }
+    
+    showLoading('testPlanResults');
+    
+    try {
+        const result = await makeJiraApiCall('/api/jira-generate-test-plan', {
+            issue_id: issueId
+        });
+        displayTestPlanResults(result);
+    } catch (error) {
+        displayError('testPlanResults', 'Failed to generate test plan: ' + error.message);
+    }
+});
+
+function displayIssueResults(result) {
+    const container = document.getElementById('issueResults');
+    container.style.display = 'block';
+    
+    if (result.status === 'error') {
+        container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        return;
+    }
+    
+    const issue = result.issue;
+    
+    let html = `
+        <div class="jira-issue-detail">
+            <div class="issue-header">
+                <h3><i class="fas fa-ticket-alt"></i> ${issue.key} - ${issue.summary}</h3>
+                <div class="issue-badges">
+                    <span class="badge badge-${(issue.priority||'medium').toLowerCase()}">${issue.priority||'—'}</span>
+                    <span class="badge badge-type">${issue.issue_type||'—'}</span>
+                    <span class="badge badge-status">${issue.status||'—'}</span>
+                </div>
+            </div>
+            
+            <div class="issue-meta">
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <strong>Project:</strong> ${issue.project}
+                    </div>
+                    <div class="meta-item">
+                        <strong>Assignee:</strong> ${issue.assignee || 'Unassigned'}
+                    </div>
+                    <div class="meta-item">
+                        <strong>Reporter:</strong> ${issue.reporter}
+                    </div>
+                    <div class="meta-item">
+                        <strong>Created:</strong> ${new Date(issue.created).toLocaleDateString()}
+                    </div>
+                </div>
+            </div>
+            
+            ${issue.description ? `
+                <div class="issue-description">
+                    <h4>Description</h4>
+                    <div class="description-content">${issue.description}</div>
+                </div>
+            ` : ''}
+            
+            ${issue.acceptance_criteria ? `
+                <div class="issue-acceptance">
+                    <h4>Acceptance Criteria</h4>
+                    <div class="acceptance-content">${issue.acceptance_criteria}</div>
+                </div>
+            ` : ''}
+            
+            ${issue.components && issue.components.length ? `
+                <div class="issue-components">
+                    <h4>Components</h4>
+                    <div class="components-list">
+                        ${issue.components.map(c => `<span class="component-tag">${c}</span>`).join('')}
+                    </div>
+                </div>
+            ` : ''}
+            
+            <div class="issue-actions">
+                <button onclick="fillTestIssueId('${issue.key}')" class="btn btn-success">
+                    <i class="fas fa-magic"></i> Generate Test Cases
+                </button>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function displaySearchResults(result, containerId = 'searchResults') {
+    const container = document.getElementById(containerId);
+    container.style.display = 'block';
+    
+    if (result.status === 'error') {
+        container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        return;
+    }
+    
+    let html = `
+        <div class="search-results-header">
+            <h3>📊 Search Results</h3>
+            <p>Found ${result.total} issues (showing ${result.issues.length})</p>
+            ${result.query ? `<code class="query-display">${result.query}</code>` : ''}
+        </div>
+    `;
+    
+    if (result.issues && result.issues.length > 0) {
+        html += '<div class="issues-grid">';
+        
+        result.issues.forEach(issue => {
+            const priorityClass = (issue.priority||'medium').toLowerCase();
+            const statusClass = (issue.status||'open').toLowerCase().replace(' ', '-');
+            
+            html += `
+                <div class="issue-card">
+                    <div class="issue-card-header">
+                        <h4><i class="fas fa-ticket-alt"></i> ${issue.key}</h4>
+                        <div class="issue-badges">
+                            <span class="badge badge-${priorityClass}">${issue.priority}</span>
+                            <span class="badge badge-status-${statusClass}">${issue.status}</span>
+                        </div>
+                    </div>
+                    <div class="issue-title">${issue.summary}</div>
+                    <div class="issue-meta-small">
+                        <span><i class="fas fa-cube"></i> ${issue.project}</span>
+                        <span><i class="fas fa-user"></i> ${issue.assignee || 'Unassigned'}</span>
+                        <span><i class="fas fa-calendar"></i> ${new Date(issue.created).toLocaleDateString()}</span>
+                    </div>
+                    <div class="issue-actions">
+                        <button onclick="loadIssueDetails('${issue.key}')" class="btn btn-sm btn-secondary">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                        <button onclick="fillTestIssueId('${issue.key}')" class="btn btn-sm btn-success">
+                            <i class="fas fa-magic"></i> Tests
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    } else {
+        html += '<div class="alert alert-info">No issues found matching your criteria.</div>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function displayTestCasesResults(result) {
+    const container = document.getElementById('testCasesResults');
+    container.style.display = 'block';
+    
+    if (result.status === 'error') {
+        container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        return;
+    }
+    
+    let html = `
+        <div class="test-results-header">
+            <h3>🧪 Generated Test Cases</h3>
+            <p>Generated ${result.total_test_cases} test cases for ${result.issue_id}</p>
+            <div class="issue-summary">${result.issue_summary}</div>
+        </div>
+        
+        <div class="test-cases-grid">
+    `;
+    
+    result.test_cases.forEach((testCase, index) => {
+        const typeClass = testCase.type.toLowerCase().replace(' ', '-');
+        const priorityClass = testCase.priority.toLowerCase();
+        
+        html += `
+            <div class="test-case-card">
+                <div class="test-case-header">
+                    <h4>${testCase.id}</h4>
+                    <div class="test-badges">
+                        <span class="badge badge-type-${typeClass}">${testCase.type}</span>
+                        <span class="badge badge-priority-${priorityClass}">${testCase.priority}</span>
+                    </div>
+                </div>
+                <div class="test-case-title">${testCase.title}</div>
+                <div class="test-case-content">
+                    <div class="test-section">
+                        <strong>Preconditions:</strong>
+                        <p>${testCase.preconditions}</p>
+                    </div>
+                    <div class="test-section">
+                        <strong>Test Steps:</strong>
+                        <p>${testCase.test_steps}</p>
+                    </div>
+                    <div class="test-section">
+                        <strong>Expected Result:</strong>
+                        <p>${testCase.expected_result}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+function displayTestPlanResults(result) {
+    const container = document.getElementById('testPlanResults');
+    container.style.display = 'block';
+    
+    if (result.status === 'error') {
+        container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        return;
+    }
+    
+    const plan = result.test_plan;
+    
+    let html = `
+        <div class="test-plan">
+            <div class="test-plan-header">
+                <h3>📋 Test Plan: ${plan.issue_id}</h3>
+                <div class="plan-summary">${plan.feature_summary}</div>
+            </div>
+            
+            <div class="test-plan-sections">
+                <div class="plan-section">
+                    <h4>📋 Scope</h4>
+                    <div class="scope-grid">
+                        <div class="scope-item">
+                            <strong>✅ In Scope:</strong>
+                            <ul>
+                                ${plan.scope.in_scope.map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>
+                        <div class="scope-item">
+                            <strong>❌ Out of Scope:</strong>
+                            <ul>
+                                ${plan.scope.out_of_scope.map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="plan-section">
+                    <h4>🎯 Test Strategy</h4>
+                    <p><strong>Approach:</strong> ${plan.test_strategy.approach}</p>
+                    <p><strong>Test Types:</strong> ${plan.test_strategy.test_types.join(', ')}</p>
+                    <p><strong>Automation Target:</strong> ${plan.test_strategy.automation_target}</p>
+                </div>
+                
+                <div class="plan-section">
+                    <h4>📊 Test Coverage</h4>
+                    <div class="coverage-stats">
+                        <div class="stat-item">
+                            <span class="stat-number">${plan.test_scenarios.functional}</span>
+                            <span class="stat-label">Functional</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">${plan.test_scenarios.edge_cases}</span>
+                            <span class="stat-label">Edge Cases</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">${plan.test_scenarios.negative}</span>
+                            <span class="stat-label">Negative</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">${plan.test_scenarios.regression}</span>
+                            <span class="stat-label">Regression</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="plan-section">
+                    <h4>⚠️ Risk Areas</h4>
+                    <ul class="risk-list">
+                        ${plan.risk_areas.map(risk => `<li>${risk}</li>`).join('')}
+                    </ul>
+                </div>
+                
+                <div class="plan-section">
+                    <h4>📈 Estimates</h4>
+                    <p><strong>Effort:</strong> ${plan.estimated_effort}</p>
+                    <p><strong>Coverage Target:</strong> ${plan.coverage_target}</p>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function showLoading(elementId) {
+    const element = document.getElementById(elementId);
+    element.style.display = 'block';
+    element.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading from Jira...</div>';
+}
+
+function displayError(elementId, message) {
+    const element = document.getElementById(elementId);
+    element.innerHTML = `<div class="alert alert-error">${message}</div>`;
+}
+
+function fillJQLExample(query) {
+    document.getElementById('jqlQuery').value = query;
+    document.getElementById('searchIssuesForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function loadIssueDetails(issueKey) {
+    document.getElementById('issueId').value = issueKey;
+    document.getElementById('getIssueForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function fillTestIssueId(issueKey) {
+    document.getElementById('testIssueId').value = issueKey;
+    // Switch to AI Tests tab
+    $('.jira-tab').removeClass('active').css({'border-bottom-color':'transparent','color':'#4a5568'});
+    $('.jira-tab[data-tab="testgen"]').addClass('active').css({'border-bottom-color':'#4299e1','color':'#2b6cb0'});
+    $('.jira-tab-content').hide();
+    $('#tab-testgen').show();
+}
+
+function _creds(){
+    var b=$('#jiraBaseUrl').val()||jiraCredentials.base_url||'';
+    var u=$('#jiraUsername').val()||jiraCredentials.username||'';
+    var t=$('#jiraApiToken').val()||jiraCredentials.api_token||'';
+    return{base_url:b,username:u,api_token:t,password:''};
+}
+
+function fetchMyIssues(){
+    var creds=_creds();if(!creds.base_url||!creds.username){$('#myIssuesResults').html('<div style="color:#e53e3e;">Configure Jira credentials first (Config tab)</div>');return;}
+    var type=$('#myIssuesType').val(),status=$('#myIssuesStatus').val();
+    $('#myIssuesResults').html('<i class="fas fa-spinner fa-spin"></i> Loading...');
+    $.ajax({url:'/api/jira-my-issues',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_type:type,status_filter:status,...creds}),
+        success:function(r){
+            if(r.status!=='success'){$('#myIssuesResults').html('<div style="color:#e53e3e;">'+r.error+'</div>');return;}
+            var html='<div style="font-size:0.75rem;color:#718096;margin-bottom:0.5rem;">Found '+r.total+' issues</div>';
+            r.issues.forEach(function(i){
+                var pIcon={'High':'🔴','Highest':'🔴','Critical':'🔴','Medium':'🟡','Low':'🟢'}[i.priority]||'⚪';
+                html+='<div style="padding:0.5rem;border-bottom:1px solid #edf2f7;display:flex;gap:0.5rem;align-items:center;">';
+                html+='<span>'+pIcon+'</span>';
+                html+='<a href="'+i.url+'" target="_blank" style="font-weight:600;font-size:0.8rem;color:#2b6cb0;text-decoration:none;">'+i.key+'</a>';
+                html+='<span style="flex:1;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+i.summary+'</span>';
+                html+='<span style="font-size:0.7rem;padding:0.15rem 0.4rem;background:#e2e8f0;border-radius:9999px;">'+i.status+'</span>';
+                html+='</div>';
+            });
+            $('#myIssuesResults').html(html);
+        },error:function(){$('#myIssuesResults').html('<div style="color:#e53e3e;">Request failed</div>');}
+    });
+}
+
+function addJiraComment(){
+    var key=$('#commentIssueKey').val().trim(),text=$('#commentText').val().trim();
+    if(!key||!text){$('#commentResult').html('<span style="color:#e53e3e;">Fill in issue key and comment</span>');return;}
+    var creds=_creds();
+    $.ajax({url:'/api/jira-add-comment',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_key:key,comment:text,...creds}),
+        success:function(r){$('#commentResult').html(r.status==='success'?'<span style="color:#38a169;">✓ Comment added!</span>':'<span style="color:#e53e3e;">'+r.error+'</span>');},
+        error:function(){$('#commentResult').html('<span style="color:#e53e3e;">Failed</span>');}
+    });
+}
+
+function loadTransitions(){
+    var key=$('#transitionIssueKey').val().trim();if(!key)return;
+    var creds=_creds();
+    $.ajax({url:'/api/jira-get-transitions',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_key:key,...creds}),
+        success:function(r){
+            var sel=$('#transitionSelect').empty();
+            if(r.status==='success'&&r.transitions.length){
+                r.transitions.forEach(function(t){sel.append('<option value="'+t.id+'">'+t.name+' → '+t.to+'</option>');});
+            } else { sel.append('<option>No transitions available</option>'); }
+        }
+    });
+}
+
+function doTransition(){
+    var key=$('#transitionIssueKey').val().trim(),tid=$('#transitionSelect').val();
+    if(!key||!tid){$('#transitionResult').html('<span style="color:#e53e3e;">Select a transition</span>');return;}
+    var creds=_creds();
+    $.ajax({url:'/api/jira-transition-issue',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_key:key,transition_id:tid,...creds}),
+        success:function(r){$('#transitionResult').html(r.status==='success'?'<span style="color:#38a169;">✓ Status changed!</span>':'<span style="color:#e53e3e;">'+r.error+'</span>');},
+        error:function(){$('#transitionResult').html('<span style="color:#e53e3e;">Failed</span>');}
+    });
+}
+
+function assignJiraIssue(){
+    var key=$('#assignIssueKey').val().trim(),user=$('#assignUser').val().trim();
+    if(!key||!user){$('#assignResult').html('<span style="color:#e53e3e;">Fill in issue key and username</span>');return;}
+    var creds=_creds();
+    $.ajax({url:'/api/jira-assign-issue',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_key:key,assignee:user,...creds}),
+        success:function(r){$('#assignResult').html(r.status==='success'?'<span style="color:#38a169;">✓ Assigned!</span>':'<span style="color:#e53e3e;">'+r.error+'</span>');},
+        error:function(){$('#assignResult').html('<span style="color:#e53e3e;">Failed</span>');}
+    });
+}
+
+function viewComments(){
+    var key=$('#viewCommentsKey').val().trim();if(!key)return;
+    var creds=_creds();
+    $('#commentsResult').html('<i class="fas fa-spinner fa-spin"></i>');
+    $.ajax({url:'/api/jira-get-comments',method:'POST',contentType:'application/json',
+        data:JSON.stringify({issue_key:key,...creds}),
+        success:function(r){
+            if(r.status!=='success'){$('#commentsResult').html('<span style="color:#e53e3e;">'+r.error+'</span>');return;}
+            var html='';
+            if(!r.comments.length){html='<em>No comments</em>';}
+            r.comments.slice(-10).forEach(function(c){
+                html+='<div style="padding:0.3rem 0;border-bottom:1px solid #f7fafc;"><strong>'+c.author+'</strong> <span style="color:#a0aec0;font-size:0.7rem;">'+c.created.split('T')[0]+'</span><br>'+c.body.substring(0,200)+'</div>';
+            });
+            $('#commentsResult').html(html);
+        }
+    });
+}
+$(document).ready(function(){
+    $('#chatForm').on('submit',function(e){e.preventDefault();var msg=$('#chatInput').val().trim();if(!msg)return;$('#chatInput').val('');$('#chatMsgs').append('<div style="padding:0.4rem 0.6rem;margin:0.2rem 0;background:#ebf8ff;border-radius:0.3rem;font-size:0.85rem;"><strong style="font-size:0.7rem;">You</strong><br>'+msg+'</div>');var t=$('<div style="padding:0.4rem;font-size:0.85rem;"><i class="fas fa-spinner fa-spin"></i></div>');$('#chatMsgs').append(t);$('#chatMsgs').scrollTop($('#chatMsgs')[0].scrollHeight);$.ajax({url:'/api/ai/quick-chat',method:'POST',contentType:'application/json',data:JSON.stringify({message:msg,context:'Jira issue management'}),success:function(r){t.remove();var a=r.status==='success'?r.response:('Error: '+(r.error||''));a=a.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:#1a202c;color:#e2e8f0;padding:0.5rem;border-radius:0.25rem;overflow-x:auto;font-size:0.8rem;">$2</pre>').replace(/`([^`]+)`/g,'<code style="background:#edf2f7;padding:0.1rem 0.3rem;border-radius:0.2rem;">$1</code>').replace(/\n/g,'<br>');$('#chatMsgs').append('<div style="padding:0.4rem 0.6rem;margin:0.2rem 0;background:#f0fff4;border-radius:0.3rem;font-size:0.85rem;"><strong style="font-size:0.7rem;">AI</strong><br>'+a+'</div>');$('#chatMsgs').scrollTop($('#chatMsgs')[0].scrollHeight);},error:function(){t.remove();$('#chatMsgs').append('<div style="color:red;font-size:0.85rem;">Error</div>');}});});
+});
+</script>
+
+{% endblock %}

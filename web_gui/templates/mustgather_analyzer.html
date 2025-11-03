@@ -9,6 +9,15 @@
         <p>Analyze OpenShift must-gather bundles to identify issues and debug cluster problems</p>
     </div>
 
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
     <div class="review-container">
         <div class="review-form">
             <h3>Analyze Must-Gather Bundle</h3>
@@ -140,6 +149,20 @@ $(document).ready(function() {
         });
     });
 
+    function formatMarkdown(text) {
+        if (!text) return '';
+        let html = text;
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.85rem;"><code>$2</code></pre>');
+        html = html.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 6px;border-radius:3px;font-size:0.85em;">$1</code>');
+        html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
+        html = html.replace(/\n\n/g, '</p><p>');
+        html = html.replace(/\n/g, '<br>');
+        return '<p>' + html + '</p>';
+    }
+
     function displayResults(result) {
         if (result.status === 'error') {
             alert('Error: ' + result.error);
@@ -157,6 +180,17 @@ $(document).ready(function() {
 
         // Display SRE diagnostic report
         displaySREReport(result.formatted_sre_report || result.sre_diagnostic_report);
+
+        // Display LLM-enhanced analysis if available
+        if (result.llm_enhanced_analysis) {
+            let llmHtml = `
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid #805ad5; margin-top: 1.5rem;">
+                    <h3 style="margin-top: 0; color: #2d3748;">🤖 AI-Enhanced Analysis (llama3)</h3>
+                    <div style="margin-top: 1rem;">${formatMarkdown(result.llm_enhanced_analysis)}</div>
+                </div>
+            `;
+            $('#sreReport').after(llmHtml);
+        }
 
         // Display issues list
         displayIssuesList(result.issues);

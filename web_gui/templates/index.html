@@ -72,6 +72,36 @@
 
         <div class="feature-card">
             <div class="feature-icon">
+                <i class="fas fa-search"></i>
+            </div>
+            <h3>Polarion QA Assistant</h3>
+            <p>AI-powered test case search and analysis for OpenShift QE</p>
+            <ul class="feature-list">
+                <li>Smart test case search with filters</li>
+                <li>Detailed test case analysis</li>
+                <li>Custom WIQL query execution</li>
+                <li>Professional QA librarian + Automation bot</li>
+            </ul>
+            <a href="/polarion-qa" class="btn btn-primary">Search Test Cases</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fab fa-jira"></i>
+            </div>
+            <h3>Jira Manager - AI Test Engineer</h3>
+            <p>Fetch, analyze, and generate test artifacts from Jira issues</p>
+            <ul class="feature-list">
+                <li>Fetch & analyze Jira issues with JQL</li>
+                <li>AI-powered test case generation</li>
+                <li>Comprehensive test plan creation</li>
+                <li>Bug analysis & regression testing</li>
+            </ul>
+            <a href="/jira-manager" class="btn btn-primary">Manage Jira Issues</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
                 <i class="fas fa-bug"></i>
             </div>
             <h3>Cluster Debugger Agent</h3>
@@ -86,11 +116,18 @@
         </div>
     </div>
 
+    <div id="llmStatus" class="stats-section" style="margin-bottom: 2rem;">
+        <h2><i class="fas fa-brain"></i> Local LLM Status</h2>
+        <div id="llmStatusContent" style="padding: 1rem; background: #f7fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+            <p style="margin: 0; color: #718096;"><i class="fas fa-spinner fa-spin"></i> Checking Ollama status...</p>
+        </div>
+    </div>
+
     <div class="stats-section">
         <h2><i class="fas fa-chart-bar"></i> Capabilities</h2>
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-number">10+</div>
+                <div class="stat-number">19+</div>
                 <div class="stat-label">Tools Available</div>
             </div>
             <div class="stat-card">
@@ -149,9 +186,86 @@
             </div>
             <div class="tool-item">
                 <i class="fas fa-check-circle text-success"></i>
+                <strong>search_test_cases</strong> - Polarion test case search with filters
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>get_test_case_details</strong> - Detailed Polarion test case analysis
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>query_polarion_api</strong> - Custom WIQL query execution
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>get_issue</strong> - Fetch specific Jira issue details
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>search_issues</strong> - Search Jira issues with JQL queries
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>get_high_priority_bugs</strong> - Get critical bugs for teams
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>get_team_issues</strong> - Fetch team-specific Jira issues
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>generate_test_cases_from_jira</strong> - AI test case generation
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>generate_test_plan_from_jira</strong> - Comprehensive test planning
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
                 <strong>debug_openshift_cluster</strong> - AI cluster debugger + test automation
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $.get('/api/ai/status', function(data) {
+        let html = '';
+        if (data.available) {
+            html = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span style="color: #48bb78; font-size: 1.5rem;">●</span>
+                    <div>
+                        <p style="margin: 0; color: #2d3748; font-weight: 600;">Ollama Connected - LLM Active</p>
+                        <p style="margin: 0.25rem 0 0; color: #718096; font-size: 0.875rem;">
+                            Models: ${data.models ? data.models.join(', ') : 'llama3'}
+                        </p>
+                        <p style="margin: 0.25rem 0 0; color: #4a5568; font-size: 0.875rem;">
+                            All tools are AI-powered with local llama3. Code Review, Test Generation, Cluster Debugging, and Must-Gather Analysis will use the LLM for enhanced results.
+                        </p>
+                    </div>
+                </div>
+            `;
+        } else {
+            html = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span style="color: #f56565; font-size: 1.5rem;">●</span>
+                    <div>
+                        <p style="margin: 0; color: #2d3748; font-weight: 600;">Ollama Offline - Template Mode</p>
+                        <p style="margin: 0.25rem 0 0; color: #718096; font-size: 0.875rem;">
+                            Tools are using pattern-based analysis. Start <code>ollama serve</code> and pull <code>llama3</code> to enable AI-powered results.
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+        $('#llmStatusContent').html(html);
+    }).fail(function() {
+        $('#llmStatusContent').html('<p style="margin:0;color:#f56565;">Could not check LLM status</p>');
+    });
+});
+</script>
 {% endblock %}

@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Base - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-book"></i> Knowledge Base (RAG)</h1>
+        <p>Index documents, code repos, and OpenShift docs - then ask questions powered by local LLM</p>
+    </div>
+
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
+    <div class="review-container">
+        <ul class="nav nav-tabs" style="list-style: none; display: flex; gap: 1rem; border-bottom: 2px solid var(--border-color); margin-bottom: 2rem;">
+            <li><a href="#" class="tab-link active" data-tab="ask">Ask Docs</a></li>
+            <li><a href="#" class="tab-link" data-tab="index">Index Docs</a></li>
+            <li><a href="#" class="tab-link" data-tab="collections">Collections</a></li>
+        </ul>
+
+        <!-- Ask Docs Tab -->
+        <div id="ask-tab" class="tab-content">
+            <div class="review-form">
+                <h3>Ask Your Knowledge Base</h3>
+                <form id="askForm">
+                    <div class="form-group">
+                        <label for="ask_collection">Collection</label>
+                        <select id="ask_collection" class="form-control">
+                            <option value="default">default</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="question">Question</label>
+                        <textarea id="question" class="form-control" rows="3"
+                                  placeholder="e.g., How does the authentication operator handle config changes?" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-search"></i> Ask
+                    </button>
+                </form>
+            </div>
+            <div id="askResults" class="review-results" style="display: none;">
+                <h2><i class="fas fa-lightbulb"></i> Answer</h2>
+                <div id="answerContent"></div>
+            </div>
+        </div>
+
+        <!-- Index Docs Tab -->
+        <div id="index-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3>Index Documents or Code</h3>
+                <form id="indexForm">
+                    <div class="form-group">
+                        <label for="index_type">Source Type</label>
+                        <select id="index_type" class="form-control">
+                            <option value="folder">Local Folder / Path</option>
+                            <option value="repo">Git Repository URL</option>
+                            <option value="web">Web URL (Documentation)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="folderGroup">
+                        <label for="folder_path">Folder Path</label>
+                        <input type="text" id="folder_path" class="form-control"
+                               placeholder="/path/to/docs or /path/to/code-repo">
+                        <small style="color:#718096;">e.g., /Users/rgangwar/office-work/cluster-image-registry-operator</small>
+                    </div>
+                    <div class="form-group" id="repoGroup" style="display:none;">
+                        <label for="repo_url">Repository URL</label>
+                        <input type="text" id="repo_url" class="form-control"
+                               placeholder="https://github.com/openshift/api">
+                        <small style="color:#718096;">Any git URL (GitHub, GitLab, internal repos)</small>
+                        <div style="margin-top: 0.5rem;">
+                            <label for="branch">Branch</label>
+                            <input type="text" id="branch" class="form-control" value="main" placeholder="main">
+                        </div>
+                    </div>
+                    <div class="form-group" id="webGroup" style="display:none;">
+                        <label for="web_url">Documentation URL</label>
+                        <input type="text" id="web_url" class="form-control"
+                               placeholder="https://docs.openshift.com/container-platform/4.14/operators/index.html">
+                        <small style="color:#718096;">Fetches and indexes the page content (supports HTML docs)</small>
+                        <div style="margin-top: 0.5rem;">
+                            <label><input type="checkbox" id="crawl_links"> Crawl linked pages (same domain, max 20 pages)</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="idx_collection">Collection Name</label>
+                        <input type="text" id="idx_collection" class="form-control" value="default"
+                               placeholder="e.g., openshift-docs, my-team-code">
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="include_code" checked> Include code files (.go, .py, .yaml, etc.)</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-database"></i> Index
+                    </button>
+                </form>
+            </div>
+            <div id="indexResults" class="review-results" style="display: none;">
+                <h2><i class="fas fa-check-circle"></i> Indexing Results</h2>
+                <div id="indexContent"></div>
+            </div>
+        </div>
+
+        <!-- Collections Tab -->
+        <div id="collections-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3>Indexed Collections</h3>
+                <div id="collectionsContent">
+                    <p style="color: #718096;">Loading collections...</p>
+                </div>
+                <button onclick="loadCollections()" class="btn btn-primary" style="margin-top:1rem;">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p id="loadingText">Processing...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    loadCollections();
+
+    $('.tab-link').on('click', function(e) {
+        e.preventDefault();
+        const tab = $(this).data('tab');
+        $('.tab-link').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-content').hide();
+        $(`#${tab}-tab`).show();
+    });
+
+    $('#index_type').on('change', function() {
+        $('#folderGroup, #repoGroup, #webGroup').hide();
+        if ($(this).val() === 'repo') {
+            $('#repoGroup').show();
+        } else if ($(this).val() === 'web') {
+            $('#webGroup').show();
+        } else {
+            $('#folderGroup').show();
+        }
+    });
+
+    $('#askForm').on('submit', function(e) {
+        e.preventDefault();
+        const data = {
+            question: $('#question').val(),
+            collection: $('#ask_collection').val()
+        };
+        $('#loading').show();
+        $('#loadingText').text('Searching docs and generating answer...');
+        $('#askResults').hide();
+        $.ajax({
+            url: '/api/rag/ask', method: 'POST',
+            contentType: 'application/json', data: JSON.stringify(data),
+            success: function(resp) {
+                if (resp.status === 'success') {
+                    let html = '<div style="padding:1.5rem;background:white;border-radius:0.5rem;border-left:4px solid #805ad5;">';
+                    html += '<div style="white-space:pre-wrap;line-height:1.7;">' + formatMd(resp.answer) + '</div>';
+                    if (resp.sources && resp.sources.length > 0) {
+                        html += '<h4 style="margin-top:1.5rem;">Sources:</h4><ul>';
+                        resp.sources.forEach(function(s) {
+                            html += '<li><code>' + s.file + '</code> (relevance: ' + (s.relevance * 100).toFixed(0) + '%)</li>';
+                        });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                    $('#answerContent').html(html);
+                } else {
+                    $('#answerContent').html('<p style="color:red;">' + (resp.error || 'Unknown error') + '</p>');
+                }
+                $('#askResults').show();
+            },
+            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+            complete: function() { $('#loading').hide(); }
+        });
+    });
+
+    $('#indexForm').on('submit', function(e) {
+        e.preventDefault();
+        var indexType = $('#index_type').val();
+        var url, data;
+        if (indexType === 'repo') {
+            url = '/api/rag/index-repo';
+            data = { repo_url: $('#repo_url').val(), collection: $('#idx_collection').val(), branch: $('#branch').val() };
+        } else if (indexType === 'web') {
+            url = '/api/rag/index-web';
+            data = { web_url: $('#web_url').val(), collection: $('#idx_collection').val(), crawl: $('#crawl_links').is(':checked') };
+        } else {
+            url = '/api/rag/index';
+            data = { folder_path: $('#folder_path').val(), collection: $('#idx_collection').val(), include_code: $('#include_code').is(':checked') };
+        }
+        $('#loading').show();
+        $('#loadingText').text('Indexing documents (this may take a while)...');
+        $('#indexResults').hide();
+        $.ajax({
+            url: url, method: 'POST',
+            contentType: 'application/json', data: JSON.stringify(data),
+            success: function(resp) {
+                let html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;border-left:4px solid #48bb78;">';
+                html += '<p><strong>Status:</strong> ' + resp.status + '</p>';
+                html += '<p><strong>Files Processed:</strong> ' + (resp.files_processed || 0) + '</p>';
+                html += '<p><strong>Chunks Indexed:</strong> ' + (resp.chunks_indexed || 0) + '</p>';
+                if (resp.source_repo) html += '<p><strong>Repo:</strong> ' + resp.source_repo + '</p>';
+                if (resp.errors) html += '<p><strong>Errors:</strong> ' + resp.errors + '</p>';
+                html += '</div>';
+                $('#indexContent').html(html);
+                $('#indexResults').show();
+                loadCollections();
+            },
+            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+            complete: function() { $('#loading').hide(); }
+        });
+    });
+});
+
+function loadCollections() {
+    $.get('/api/rag/collections', function(data) {
+        if (data.collections && data.collections.length > 0) {
+            let html = '<div style="display:grid;gap:1rem;">';
+            var select = $('#ask_collection');
+            select.empty();
+            data.collections.forEach(function(c) {
+                select.append($('<option>').val(c.name).text(c.name + ' (' + c.document_count + ' chunks)'));
+                html += '<div style="padding:1rem;background:white;border-radius:0.5rem;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">';
+                html += '<div><strong>' + c.name + '</strong><br><span style="color:#718096;font-size:0.875rem;">' + c.document_count + ' chunks indexed</span></div>';
+                html += '<button onclick="deleteCollection(\'' + c.name + '\')" class="btn" style="background:#f56565;color:white;padding:0.5rem 1rem;border:none;border-radius:0.375rem;cursor:pointer;"><i class="fas fa-trash"></i></button>';
+                html += '</div>';
+            });
+            html += '</div>';
+            $('#collectionsContent').html(html);
+        } else {
+            $('#collectionsContent').html('<p style="color:#718096;">No collections yet. Index some documents to get started.</p>');
+            $('#ask_collection').html('<option value="default">default</option>');
+        }
+    });
+}
+
+function deleteCollection(name) {
+    if (!confirm('Delete collection "' + name + '"? This cannot be undone.')) return;
+    $.ajax({
+        url: '/api/rag/delete', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({collection: name}),
+        success: function() { loadCollections(); }
+    });
+}
+
+function formatMd(text) {
+    if (!text) return '';
+    let html = text;
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.85rem;margin:0.5rem 0;"><code>$2</code></pre>');
+    html = html.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 6px;border-radius:3px;">$1</code>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
+}
+</script>
+
+<style>
+.tab-link { padding: 0.75rem 1.5rem; text-decoration: none; color: var(--text-secondary); border-bottom: 3px solid transparent; transition: all 0.3s; cursor: pointer; }
+.tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+</style>
+{% endblock %}

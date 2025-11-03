@@ -1811,6 +1811,20 @@ async def analyze_mustgather_bundle(
             formatted_sre_report = analyzer.format_sre_diagnostic_report(sre_report_obj)
             results["formatted_sre_report"] = formatted_sre_report
         
+        # Enhance with LLM analysis if available
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import analyze_mustgather as llm_analyze, is_available
+            if is_available() and results.get("status") == "success":
+                summary_text = results.get("formatted_sre_report", "")
+                if not summary_text:
+                    summary_text = json.dumps(results.get("cluster_health", {}), indent=2)
+                llm_insights = llm_analyze(summary_text)
+                if llm_insights:
+                    results["llm_enhanced_analysis"] = llm_insights
+                    results["mode"] = "llm_enhanced"
+        except Exception as llm_err:
+            logger.warning(f"LLM enhancement unavailable: {llm_err}")
+
         # Add metadata
         results.update({
             "tool": "analyze_mustgather_bundle",

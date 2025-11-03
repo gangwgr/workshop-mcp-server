@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}Test Plan Generator - Control Plane QE{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header" style="margin-bottom:1rem;">
+        <h1 style="font-size:1.5rem;margin-bottom:0.25rem;"><i class="fas fa-clipboard-check"></i> Control Plane Test Plan Generator</h1>
+        <p style="margin:0;font-size:0.85rem;color:#718096;">Auto-generate structured QE test plans from enhancement PRs, KEPs, or design documents</p>
+    </div>
+
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.5rem 0.75rem;background:linear-gradient(135deg,#f7fafc,#edf2f7);border:1px solid #e2e8f0;border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.8rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.25rem 0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+        <!-- Left: Input -->
+        <div>
+            <div style="background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1.25rem;">
+                <h3 style="font-size:1rem;margin-bottom:1rem;color:#2d3748;"><i class="fas fa-file-import"></i> Input Source</h3>
+
+                <!-- Input Mode Toggle -->
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                    <button type="button" class="input-mode-btn active" data-mode="doc" onclick="switchInputMode('doc')" style="padding:0.4rem 0.8rem;font-size:0.8rem;border:1px solid #e2e8f0;border-radius:0.375rem;cursor:pointer;background:#805ad5;color:white;">Paste Document</button>
+                    <button type="button" class="input-mode-btn" data-mode="pr" onclick="switchInputMode('pr')" style="padding:0.4rem 0.8rem;font-size:0.8rem;border:1px solid #e2e8f0;border-radius:0.375rem;cursor:pointer;background:white;color:#4a5568;">GitHub PR URL</button>
+                </div>
+
+                <!-- Document Input -->
+                <div id="docInput">
+                    <div class="form-group" style="margin-bottom:0.75rem;">
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Enhancement / Design Doc / KEP / Git Diff</label>
+                        <textarea id="docContent" rows="14" placeholder="Paste your enhancement proposal, KEP, design document, or git diff here..." style="width:100%;padding:0.6rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;font-family:monospace;resize:vertical;min-height:250px;"></textarea>
+                    </div>
+                </div>
+
+                <!-- PR URL Input -->
+                <div id="prInput" style="display:none;">
+                    <div class="form-group" style="margin-bottom:0.75rem;">
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">GitHub PR URL</label>
+                        <input type="url" id="prUrl" placeholder="https://github.com/openshift/library-go/pull/2249" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;">
+                        <p style="font-size:0.7rem;color:#718096;margin-top:0.25rem;">PR diff will be fetched automatically via <code>gh</code> CLI</p>
+                    </div>
+                </div>
+
+                <!-- Metadata -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div>
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Feature Name</label>
+                        <input type="text" id="featureName" placeholder="e.g., KMS Encryption Plugin Lifecycle" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Target Components</label>
+                        <input type="text" id="targetComponents" placeholder="e.g., cluster-kube-apiserver-operator, library-go" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    </div>
+                </div>
+
+                <!-- Focus Areas -->
+                <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.4rem;">Focus Areas</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="functional" checked> Functional</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="edge_cases" checked> Edge Cases</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="negative" checked> Negative Testing</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="upgrade" checked> Upgrade Compatibility</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="performance"> Performance</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="security"> Security</label>
+                        <label style="font-size:0.75rem;display:flex;align-items:center;gap:0.25rem;"><input type="checkbox" name="focus" value="race_conditions" checked> Race Conditions</label>
+                    </div>
+                </div>
+
+                <!-- Quick Templates -->
+                <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.4rem;">Quick Templates</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+                        <button type="button" onclick="loadTemplate('operator')" class="btn btn-sm" style="padding:0.25rem 0.5rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;">Operator Enhancement</button>
+                        <button type="button" onclick="loadTemplate('api')" class="btn btn-sm" style="padding:0.25rem 0.5rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;">API Change</button>
+                        <button type="button" onclick="loadTemplate('encryption')" class="btn btn-sm" style="padding:0.25rem 0.5rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;">Encryption/KMS</button>
+                        <button type="button" onclick="loadTemplate('controller')" class="btn btn-sm" style="padding:0.25rem 0.5rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;">Controller Loop</button>
+                    </div>
+                </div>
+
+                <button type="button" id="generateBtn" onclick="generateTestPlan()" style="width:100%;padding:0.6rem;background:#805ad5;color:white;border:none;border-radius:0.375rem;font-size:0.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+                    <i class="fas fa-magic"></i> Generate Test Plan
+                </button>
+            </div>
+        </div>
+
+        <!-- Right: Output -->
+        <div>
+            <div id="outputContainer" style="background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1.25rem;min-height:500px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <h3 style="font-size:1rem;color:#2d3748;margin:0;"><i class="fas fa-file-alt"></i> Generated Test Plan</h3>
+                    <div style="display:flex;gap:0.4rem;">
+                        <button onclick="copyOutput()" id="copyBtn" style="display:none;padding:0.3rem 0.6rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;"><i class="fas fa-copy"></i> Copy</button>
+                        <button onclick="downloadOutput()" id="downloadBtn" style="display:none;padding:0.3rem 0.6rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;"><i class="fas fa-download"></i> Download .md</button>
+                    </div>
+                </div>
+                <div id="outputPlaceholder" style="text-align:center;padding:3rem 1rem;color:#a0aec0;">
+                    <i class="fas fa-clipboard-check" style="font-size:3rem;margin-bottom:1rem;display:block;opacity:0.4;"></i>
+                    <p style="font-size:0.85rem;">Your generated test plan will appear here</p>
+                    <p style="font-size:0.75rem;margin-top:0.5rem;">Paste an enhancement doc or PR URL and click Generate</p>
+                </div>
+                <div id="outputLoading" style="display:none;text-align:center;padding:3rem 1rem;">
+                    <i class="fas fa-spinner fa-spin" style="font-size:2rem;color:#805ad5;margin-bottom:1rem;display:block;"></i>
+                    <p style="font-size:0.85rem;color:#4a5568;">Generating comprehensive test plan...</p>
+                    <p style="font-size:0.75rem;color:#718096;margin-top:0.25rem;">This may take 30-60 seconds with local models</p>
+                </div>
+                <div id="outputResult" style="display:none;font-size:0.8rem;line-height:1.6;overflow-y:auto;max-height:600px;"></div>
+                <div id="outputError" style="display:none;padding:1rem;background:#fff5f5;border:1px solid #fed7d7;border-radius:0.375rem;color:#c53030;font-size:0.8rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat -->
+    <div style="margin-top:1.5rem;background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+        <h4 style="font-size:0.9rem;margin-bottom:0.5rem;color:#2d3748;"><i class="fas fa-comments"></i> AI Chat — Refine test plan, ask about coverage gaps</h4>
+        <div id="chatMessages" style="max-height:200px;overflow-y:auto;margin-bottom:0.5rem;padding:0.5rem;background:#f7fafc;border-radius:0.375rem;font-size:0.8rem;"></div>
+        <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="chatInput" placeholder="Ask about the test plan, request more edge cases, or refine scenarios..." style="flex:1;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;" onkeypress="if(event.key==='Enter')sendChat()">
+            <button onclick="sendChat()" style="padding:0.5rem 1rem;background:#805ad5;color:white;border:none;border-radius:0.375rem;font-size:0.8rem;cursor:pointer;"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchInputMode(mode) {
+    document.querySelectorAll('.input-mode-btn').forEach(b => {
+        b.style.background = 'white'; b.style.color = '#4a5568';
+    });
+    document.querySelector(`.input-mode-btn[data-mode="${mode}"]`).style.background = '#805ad5';
+    document.querySelector(`.input-mode-btn[data-mode="${mode}"]`).style.color = 'white';
+    document.getElementById('docInput').style.display = mode === 'doc' ? 'block' : 'none';
+    document.getElementById('prInput').style.display = mode === 'pr' ? 'block' : 'none';
+}
+
+function loadTemplate(type) {
+    const templates = {
+        operator: `Enhancement: [Operator Name] Enhancement
+Component: cluster-[name]-operator
+Summary: [Describe the operator behavior change]
+
+Current Behavior:
+- [What the operator does today]
+
+Proposed Change:
+- [What changes in the operator reconciliation loop]
+- [New CRD fields or status conditions]
+- [Configuration changes]
+
+Affected Resources:
+- [Deployments/DaemonSets managed]
+- [ConfigMaps/Secrets read]
+- [CRDs watched]`,
+        api: `Enhancement: API Change - [Resource Name]
+Component: openshift-apiserver / kube-apiserver
+Summary: [Describe the API change]
+
+New/Modified Fields:
+- spec.fieldName (type: string, required: true)
+- status.conditionName
+
+Validation Rules:
+- [Field constraints]
+- [CEL validation expressions]
+
+Compatibility:
+- [Conversion webhooks needed?]
+- [Feature gate name]`,
+        encryption: `Enhancement: Encryption/KMS [Feature]
+Component: cluster-kube-apiserver-operator, library-go/encryption
+Summary: [Describe encryption feature change]
+
+KMS Plugin Configuration:
+- [Plugin type: local/external]
+- [Key rotation strategy]
+- [Recovery scenarios]
+
+Affected Secrets/Resources:
+- [Which resources are encrypted]
+- [Storage backend impact]
+
+Operator Integration:
+- [How operator deploys/manages the plugin]
+- [Health check mechanisms]`,
+        controller: `Enhancement: Controller Loop Change - [Name]
+Component: [operator-name]
+Summary: [Describe the controller change]
+
+Reconciliation Logic:
+- [What triggers reconciliation]
+- [State machine transitions]
+- [Retry/backoff strategy]
+
+Resources Managed:
+- [Created/Updated/Deleted resources]
+- [Owner references]
+
+Error Handling:
+- [Degraded conditions]
+- [Event recording]`
+    };
+    document.getElementById('docContent').value = templates[type] || '';
+}
+
+function generateTestPlan() {
+    const docContent = document.getElementById('docContent').value.trim();
+    const prUrl = document.getElementById('prUrl').value.trim();
+    const featureName = document.getElementById('featureName').value.trim();
+    const targetComponents = document.getElementById('targetComponents').value.trim();
+    const focusAreas = Array.from(document.querySelectorAll('input[name="focus"]:checked')).map(c => c.value);
+
+    if (!docContent && !prUrl) {
+        alert('Please paste a document or provide a PR URL');
+        return;
+    }
+
+    document.getElementById('outputPlaceholder').style.display = 'none';
+    document.getElementById('outputResult').style.display = 'none';
+    document.getElementById('outputError').style.display = 'none';
+    document.getElementById('outputLoading').style.display = 'block';
+    document.getElementById('copyBtn').style.display = 'none';
+    document.getElementById('downloadBtn').style.display = 'none';
+    document.getElementById('generateBtn').disabled = true;
+
+    $.ajax({
+        url: '/api/generate-test-plan-from-doc',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            doc_content: docContent,
+            pr_url: prUrl,
+            feature_name: featureName,
+            target_components: targetComponents,
+            focus_areas: focusAreas
+        }),
+        timeout: 180000,
+        success: function(r) {
+            document.getElementById('outputLoading').style.display = 'none';
+            document.getElementById('generateBtn').disabled = false;
+            if (r.status === 'success') {
+                const html = renderMarkdown(r.test_plan);
+                document.getElementById('outputResult').innerHTML = html;
+                document.getElementById('outputResult').style.display = 'block';
+                document.getElementById('outputResult').dataset.raw = r.test_plan;
+                document.getElementById('copyBtn').style.display = 'inline-block';
+                document.getElementById('downloadBtn').style.display = 'inline-block';
+            } else {
+                document.getElementById('outputError').textContent = r.error || 'Unknown error';
+                document.getElementById('outputError').style.display = 'block';
+            }
+        },
+        error: function(xhr) {
+            document.getElementById('outputLoading').style.display = 'none';
+            document.getElementById('generateBtn').disabled = false;
+            var err = 'Request failed';
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            document.getElementById('outputError').textContent = err;
+            document.getElementById('outputError').style.display = 'block';
+        }
+    });
+}
+
+function renderMarkdown(text) {
+    return text
+        .replace(/^### (.+)$/gm, '<h4 style="color:#2d3748;margin:1rem 0 0.5rem;font-size:0.9rem;">$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3 style="color:#1a202c;margin:1.2rem 0 0.5rem;font-size:1rem;border-bottom:1px solid #e2e8f0;padding-bottom:0.3rem;">$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2 style="color:#1a202c;margin:0 0 0.75rem;font-size:1.1rem;">$1</h2>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:0.1rem 0.3rem;border-radius:0.2rem;font-size:0.75rem;">$1</code>')
+        .replace(/^- (.+)$/gm, '<div style="padding-left:1rem;margin:0.2rem 0;">• $1</div>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+}
+
+function copyOutput() {
+    const raw = document.getElementById('outputResult').dataset.raw;
+    navigator.clipboard.writeText(raw).then(() => {
+        document.getElementById('copyBtn').innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(() => { document.getElementById('copyBtn').innerHTML = '<i class="fas fa-copy"></i> Copy'; }, 2000);
+    });
+}
+
+function downloadOutput() {
+    const raw = document.getElementById('outputResult').dataset.raw;
+    const feature = document.getElementById('featureName').value.trim() || 'test-plan';
+    const filename = feature.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-test-plan.md';
+    const blob = new Blob([raw], {type: 'text/markdown'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+}
+
+function sendChat() {
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const container = document.getElementById('chatMessages');
+    container.innerHTML += `<div style="margin:0.4rem 0;"><strong style="color:#805ad5;">You:</strong> ${msg}</div>`;
+    input.value = '';
+
+    const testPlan = document.getElementById('outputResult').dataset?.raw || '';
+    const context = testPlan ? `Current test plan:\n${testPlan.substring(0, 3000)}\n\nUser question: ${msg}` : msg;
+
+    $.ajax({
+        url: '/api/ai/quick-chat', method: 'POST', contentType: 'application/json',
+        data: JSON.stringify({message: context, context: 'Control Plane QE Test Plan Generator - help refine test scenarios'}),
+        success: function(r) {
+            if (r.status === 'success') {
+                container.innerHTML += `<div style="margin:0.4rem 0;"><strong style="color:#38a169;">AI:</strong> ${r.response.replace(/\n/g,'<br>')}</div>`;
+            } else {
+                container.innerHTML += `<div style="margin:0.4rem 0;color:#e53e3e;">Error: ${r.error}</div>`;
+            }
+            container.scrollTop = container.scrollHeight;
+        },
+        error: function() {
+            container.innerHTML += `<div style="margin:0.4rem 0;color:#e53e3e;">Request failed</div>`;
+        }
+    });
+}
+</script>
+{% endblock %}

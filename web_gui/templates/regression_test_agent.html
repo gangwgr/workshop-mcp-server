@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}Regression Test Agent - Jira-to-Test{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header" style="margin-bottom:1rem;">
+        <h1 style="font-size:1.5rem;margin-bottom:0.25rem;"><i class="fas fa-shield-alt"></i> Regression Test Agent</h1>
+        <p style="margin:0;font-size:0.85rem;color:#718096;">Auto-generate regression test cases from Jira bugs — ensure closed bugs never resurface</p>
+    </div>
+
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.5rem 0.75rem;background:linear-gradient(135deg,#f7fafc,#edf2f7);border:1px solid #e2e8f0;border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.8rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.25rem 0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
+    <!-- Input Mode Tabs -->
+    <ul style="list-style:none;display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:0;padding:0;">
+        <li><a href="#" class="reg-tab active" data-tab="jira-auto" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#805ad5;text-decoration:none;border-bottom:2px solid #805ad5;margin-bottom:-2px;"><i class="fab fa-jira"></i> From Jira (Auto)</a></li>
+        <li><a href="#" class="reg-tab" data-tab="manual" style="display:inline-block;padding:0.5rem 1rem;font-size:0.8rem;font-weight:600;color:#4a5568;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;"><i class="fas fa-edit"></i> Manual Input</a></li>
+    </ul>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1rem;">
+        <!-- Left: Input -->
+        <div>
+            <!-- Jira Auto-Fetch Tab -->
+            <div class="reg-tab-content" id="tab-jira-auto" style="background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1.25rem;">
+                <h3 style="font-size:0.95rem;margin-bottom:0.75rem;color:#2d3748;"><i class="fab fa-jira"></i> Fetch Bug from Jira & Generate Tests</h3>
+                <p style="font-size:0.75rem;color:#718096;margin-bottom:1rem;">Enter a Jira bug ID — the agent will fetch details and auto-generate regression tests</p>
+
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Jira Issue ID *</label>
+                    <input type="text" id="jiraIssueId" placeholder="e.g., OCPBUGS-12345, CNTRLPLANE-3366" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;">
+                </div>
+
+                <details style="margin-bottom:1rem;">
+                    <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#4a5568;">Jira Credentials (if not in .env)</summary>
+                    <div style="margin-top:0.5rem;display:grid;gap:0.5rem;">
+                        <input type="url" id="jiraUrl" placeholder="https://redhat.atlassian.net/" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                        <input type="text" id="jiraUser" placeholder="username@redhat.com" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                        <input type="password" id="jiraToken" placeholder="API Token" style="padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    </div>
+                </details>
+
+                <button type="button" onclick="generateFromJira()" id="jiraGenBtn" style="width:100%;padding:0.6rem;background:#805ad5;color:white;border:none;border-radius:0.375rem;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                    <i class="fas fa-magic"></i> Fetch & Generate Regression Tests
+                </button>
+            </div>
+
+            <!-- Manual Input Tab -->
+            <div class="reg-tab-content" id="tab-manual" style="display:none;background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1.25rem;">
+                <h3 style="font-size:0.95rem;margin-bottom:0.75rem;color:#2d3748;"><i class="fas fa-edit"></i> Manual Bug Details</h3>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+                    <div>
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Bug ID</label>
+                        <input type="text" id="manualBugId" placeholder="OCPBUGS-12345" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Component</label>
+                        <input type="text" id="manualComponent" placeholder="cluster-kube-apiserver-operator" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Bug Title *</label>
+                    <input type="text" id="manualTitle" placeholder="e.g., KMS plugin pod crash-loops when config secret is deleted" style="width:100%;padding:0.4rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;">
+                </div>
+
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Description & Symptoms</label>
+                    <textarea id="manualDescription" rows="3" placeholder="What was observed? Error messages, pod states, operator conditions..." style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Steps to Reproduce</label>
+                    <textarea id="manualReproduce" rows="3" placeholder="1. Deploy cluster with KMS enabled&#10;2. Delete the config secret&#10;3. Observe pod state..." style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Root Cause Analysis</label>
+                    <textarea id="manualRootCause" rows="2" placeholder="e.g., Controller did not handle missing secret gracefully, panic in reconcile loop" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-group" style="margin-bottom:1rem;">
+                    <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:0.25rem;">Fix Details</label>
+                    <textarea id="manualFix" rows="2" placeholder="e.g., Added nil check for secret lookup, added retry with backoff" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;resize:vertical;"></textarea>
+                </div>
+
+                <button type="button" onclick="generateManual()" id="manualGenBtn" style="width:100%;padding:0.6rem;background:#805ad5;color:white;border:none;border-radius:0.375rem;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                    <i class="fas fa-magic"></i> Generate Regression Tests
+                </button>
+            </div>
+        </div>
+
+        <!-- Right: Output -->
+        <div>
+            <div style="background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1.25rem;min-height:500px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <h3 style="font-size:1rem;color:#2d3748;margin:0;"><i class="fas fa-shield-alt"></i> Generated Regression Tests</h3>
+                    <div style="display:flex;gap:0.4rem;">
+                        <button onclick="copyOutput()" id="copyBtn" style="display:none;padding:0.3rem 0.6rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;"><i class="fas fa-copy"></i> Copy YAML</button>
+                        <button onclick="downloadOutput()" id="downloadBtn" style="display:none;padding:0.3rem 0.6rem;font-size:0.7rem;background:#edf2f7;border:1px solid #e2e8f0;border-radius:0.25rem;cursor:pointer;"><i class="fas fa-download"></i> Download</button>
+                    </div>
+                </div>
+
+                <div id="outputPlaceholder" style="text-align:center;padding:3rem 1rem;color:#a0aec0;">
+                    <i class="fas fa-shield-alt" style="font-size:3rem;margin-bottom:1rem;display:block;opacity:0.4;"></i>
+                    <p style="font-size:0.85rem;">Regression test cases will appear here</p>
+                    <p style="font-size:0.75rem;margin-top:0.5rem;">Provide a Jira bug or enter details manually</p>
+                </div>
+                <div id="outputLoading" style="display:none;text-align:center;padding:3rem 1rem;">
+                    <i class="fas fa-spinner fa-spin" style="font-size:2rem;color:#805ad5;margin-bottom:1rem;display:block;"></i>
+                    <p style="font-size:0.85rem;color:#4a5568;">Analyzing bug and generating regression tests...</p>
+                    <p style="font-size:0.75rem;color:#718096;margin-top:0.25rem;">Identifying root cause patterns and adjacent failure paths</p>
+                </div>
+                <div id="outputResult" style="display:none;">
+                    <div id="outputMeta" style="padding:0.5rem 0.75rem;background:#f0fff4;border:1px solid #c6f6d5;border-radius:0.375rem;margin-bottom:0.75rem;font-size:0.75rem;color:#276749;"></div>
+                    <pre id="outputYaml" style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.375rem;font-size:0.75rem;overflow:auto;max-height:500px;line-height:1.5;white-space:pre-wrap;"></pre>
+                </div>
+                <div id="outputError" style="display:none;padding:1rem;background:#fff5f5;border:1px solid #fed7d7;border-radius:0.375rem;color:#c53030;font-size:0.8rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat -->
+    <div style="margin-top:1.5rem;background:white;border:1px solid #e2e8f0;border-radius:0.5rem;padding:1rem;">
+        <h4 style="font-size:0.9rem;margin-bottom:0.5rem;color:#2d3748;"><i class="fas fa-comments"></i> AI Chat — Refine tests, ask about coverage gaps, get more edge cases</h4>
+        <div id="chatMessages" style="max-height:200px;overflow-y:auto;margin-bottom:0.5rem;padding:0.5rem;background:#f7fafc;border-radius:0.375rem;font-size:0.8rem;"></div>
+        <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="chatInput" placeholder="e.g., Add a test for concurrent secret updates, include FIPS mode variant..." style="flex:1;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.8rem;" onkeypress="if(event.key==='Enter')sendChat()">
+            <button onclick="sendChat()" style="padding:0.5rem 1rem;background:#805ad5;color:white;border:none;border-radius:0.375rem;font-size:0.8rem;cursor:pointer;"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Tab switching
+document.querySelectorAll('.reg-tab').forEach(tab => {
+    tab.addEventListener('click', function(e) {
+        e.preventDefault();
+        document.querySelectorAll('.reg-tab').forEach(t => { t.style.color='#4a5568'; t.style.borderBottomColor='transparent'; t.classList.remove('active'); });
+        this.style.color='#805ad5'; this.style.borderBottomColor='#805ad5'; this.classList.add('active');
+        document.querySelectorAll('.reg-tab-content').forEach(c => c.style.display='none');
+        document.getElementById('tab-' + this.dataset.tab).style.display = 'block';
+    });
+});
+
+function showLoading() {
+    document.getElementById('outputPlaceholder').style.display = 'none';
+    document.getElementById('outputResult').style.display = 'none';
+    document.getElementById('outputError').style.display = 'none';
+    document.getElementById('outputLoading').style.display = 'block';
+    document.getElementById('copyBtn').style.display = 'none';
+    document.getElementById('downloadBtn').style.display = 'none';
+}
+
+function showResult(data) {
+    document.getElementById('outputLoading').style.display = 'none';
+    document.getElementById('outputResult').style.display = 'block';
+    document.getElementById('outputMeta').innerHTML = `<strong>✓ Generated</strong> using <code>${data.model}</code> (${data.mode}) ${data.jira_id ? '| Bug: <strong>' + data.jira_id + '</strong>' : ''} ${data.issue_summary ? '| ' + data.issue_summary : ''}`;
+    document.getElementById('outputYaml').textContent = data.regression_tests;
+    document.getElementById('outputYaml').dataset.raw = data.regression_tests;
+    document.getElementById('copyBtn').style.display = 'inline-block';
+    document.getElementById('downloadBtn').style.display = 'inline-block';
+    highlightYaml();
+}
+
+function showError(msg) {
+    document.getElementById('outputLoading').style.display = 'none';
+    document.getElementById('outputError').textContent = msg;
+    document.getElementById('outputError').style.display = 'block';
+}
+
+function highlightYaml() {
+    const el = document.getElementById('outputYaml');
+    let text = el.textContent;
+    text = text.replace(/^(\s*[\w_]+):/gm, '<span style="color:#90cdf4;">$1</span>:');
+    text = text.replace(/"([^"]+)"/g, '<span style="color:#68d391;">"$1"</span>');
+    text = text.replace(/^---$/gm, '<span style="color:#fbd38d;">---</span>');
+    text = text.replace(/#(.+)$/gm, '<span style="color:#718096;">#$1</span>');
+    el.innerHTML = text;
+}
+
+function generateFromJira() {
+    const jiraId = document.getElementById('jiraIssueId').value.trim();
+    if (!jiraId) { alert('Enter a Jira Issue ID'); return; }
+
+    showLoading();
+    document.getElementById('jiraGenBtn').disabled = true;
+
+    $.ajax({
+        url: '/api/generate-regression-from-jira',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            jira_id: jiraId,
+            base_url: document.getElementById('jiraUrl').value.trim() || undefined,
+            username: document.getElementById('jiraUser').value.trim() || undefined,
+            api_token: document.getElementById('jiraToken').value.trim() || undefined
+        }),
+        timeout: 180000,
+        success: function(r) {
+            document.getElementById('jiraGenBtn').disabled = false;
+            if (r.status === 'success') { showResult(r); }
+            else { showError(r.error || 'Generation failed'); }
+        },
+        error: function(xhr) {
+            document.getElementById('jiraGenBtn').disabled = false;
+            var err = 'Request failed';
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            showError(err);
+        }
+    });
+}
+
+function generateManual() {
+    const title = document.getElementById('manualTitle').value.trim();
+    if (!title) { alert('Enter at least a bug title'); return; }
+
+    showLoading();
+    document.getElementById('manualGenBtn').disabled = true;
+
+    $.ajax({
+        url: '/api/generate-regression-tests',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            jira_id: document.getElementById('manualBugId').value.trim(),
+            bug_title: title,
+            description: document.getElementById('manualDescription').value.trim(),
+            reproduce_steps: document.getElementById('manualReproduce').value.trim(),
+            root_cause: document.getElementById('manualRootCause').value.trim(),
+            fix_details: document.getElementById('manualFix').value.trim(),
+            component: document.getElementById('manualComponent').value.trim()
+        }),
+        timeout: 180000,
+        success: function(r) {
+            document.getElementById('manualGenBtn').disabled = false;
+            if (r.status === 'success') { showResult(r); }
+            else { showError(r.error || 'Generation failed'); }
+        },
+        error: function(xhr) {
+            document.getElementById('manualGenBtn').disabled = false;
+            var err = 'Request failed';
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            showError(err);
+        }
+    });
+}
+
+function copyOutput() {
+    const raw = document.getElementById('outputYaml').dataset.raw;
+    navigator.clipboard.writeText(raw).then(() => {
+        document.getElementById('copyBtn').innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(() => { document.getElementById('copyBtn').innerHTML = '<i class="fas fa-copy"></i> Copy YAML'; }, 2000);
+    });
+}
+
+function downloadOutput() {
+    const raw = document.getElementById('outputYaml').dataset.raw;
+    const jiraId = document.getElementById('jiraIssueId').value.trim() || document.getElementById('manualBugId').value.trim() || 'regression';
+    const filename = `regression-tests-${jiraId.toLowerCase()}.yaml`;
+    const blob = new Blob([raw], {type: 'text/yaml'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+}
+
+function sendChat() {
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const container = document.getElementById('chatMessages');
+    container.innerHTML += `<div style="margin:0.4rem 0;"><strong style="color:#805ad5;">You:</strong> ${msg}</div>`;
+    input.value = '';
+
+    const currentTests = document.getElementById('outputYaml')?.dataset?.raw || '';
+    const context = currentTests ? `Current regression tests:\n${currentTests.substring(0, 3000)}\n\nUser request: ${msg}` : msg;
+
+    $.ajax({
+        url: '/api/ai/quick-chat', method: 'POST', contentType: 'application/json',
+        data: JSON.stringify({message: context, context: 'Regression Test Agent - help generate/refine regression test cases for bugs'}),
+        success: function(r) {
+            if (r.status === 'success') {
+                container.innerHTML += `<div style="margin:0.4rem 0;"><strong style="color:#38a169;">AI:</strong> ${r.response.replace(/\n/g,'<br>')}</div>`;
+            } else {
+                container.innerHTML += `<div style="margin:0.4rem 0;color:#e53e3e;">Error: ${r.error}</div>`;
+            }
+            container.scrollTop = container.scrollHeight;
+        },
+        error: function() { container.innerHTML += `<div style="color:#e53e3e;">Request failed</div>`; }
+    });
+}
+</script>
+{% endblock %}

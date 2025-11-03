@@ -61,7 +61,35 @@ def generate_ocp_test_case(
 
         logger.info(f"Generating {test_format} test case for {component}/{feature}")
 
-        # Generate test case based on format
+        # Try LLM-powered test generation first
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import generate_test_case, is_available
+            if is_available():
+                llm_result = generate_test_case(
+                    feature=feature, component=component, scenario=scenario,
+                    test_format=test_format, description=description or ""
+                )
+                if llm_result:
+                    logger.info("LLM-powered test case generation completed")
+                    return {
+                        "status": "success",
+                        "format": test_format,
+                        "feature": feature,
+                        "component": component,
+                        "scenario": scenario,
+                        "test_case": llm_result,
+                        "mode": "llm",
+                        "metadata": {
+                            "api_version": api_version or "N/A",
+                            "namespace": namespace or "auto-generated",
+                            "description": description or "N/A",
+                        },
+                        "message": f"AI-generated {test_format} test case for {feature} (llama3)",
+                    }
+        except Exception as llm_err:
+            logger.warning(f"LLM test gen unavailable, falling back to templates: {llm_err}")
+
+        # Generate test case based on format (template fallback)
         if test_format == "gherkin":
             test_content = _generate_gherkin(feature, component, scenario, description, api_version, namespace)
         elif test_format == "yaml":

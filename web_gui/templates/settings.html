@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-cog"></i> Settings</h1>
+        <p>Configure credentials, API keys, and preferences. Saved to <code>.env</code> file.</p>
+    </div>
+
+    <div class="review-container">
+        <form id="settingsForm">
+            <!-- LLM Settings -->
+            <div class="settings-section">
+                <h3><i class="fas fa-brain"></i> LLM Configuration</h3>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="LLM_MODE">Active Mode</label>
+                        <select id="LLM_MODE" class="form-control">
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="claude">Claude (API)</option>
+                            <option value="template">Template (No LLM)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="OLLAMA_BASE_URL">Ollama URL</label>
+                        <input type="text" id="OLLAMA_BASE_URL" class="form-control" placeholder="http://localhost:11434">
+                    </div>
+                    <div class="form-group">
+                        <label for="OLLAMA_MODEL">Ollama Model</label>
+                        <input type="text" id="OLLAMA_MODEL" class="form-control" placeholder="llama3">
+                    </div>
+                    <div class="form-group">
+                        <label for="ANTHROPIC_API_KEY">Claude API Key</label>
+                        <input type="password" id="ANTHROPIC_API_KEY" class="form-control" placeholder="sk-ant-...">
+                        <small style="color:#718096;">Get from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></small>
+                    </div>
+                    <div class="form-group">
+                        <label for="CLAUDE_MODEL">Claude Model</label>
+                        <select id="CLAUDE_MODEL" class="form-control">
+                            <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                            <option value="claude-haiku-4-20250414">Claude Haiku 4</option>
+                            <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Claude Vertex Settings -->
+            <div class="settings-section">
+                <h3><i class="fas fa-cloud"></i> Claude via Vertex AI (Google Cloud)</h3>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="CLAUDE_CODE_USE_VERTEX">Use Vertex AI</label>
+                        <select id="CLAUDE_CODE_USE_VERTEX" class="form-control">
+                            <option value="">Disabled (use Anthropic directly)</option>
+                            <option value="1">Enabled (route through Vertex)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="ANTHROPIC_VERTEX_PROJECT_ID">Vertex Project ID</label>
+                        <input type="text" id="ANTHROPIC_VERTEX_PROJECT_ID" class="form-control" placeholder="your-gcp-project-id">
+                    </div>
+                    <div class="form-group">
+                        <label for="CLOUD_ML_REGION">Cloud ML Region</label>
+                        <input type="text" id="CLOUD_ML_REGION" class="form-control" placeholder="us-east5">
+                    </div>
+                </div>
+                <small style="color:#718096;">Used by Claude CLI (claude code). Set these if your org uses Vertex AI for Claude access.</small>
+            </div>
+
+            <!-- GitHub Settings -->
+            <div class="settings-section">
+                <h3><i class="fab fa-github"></i> GitHub</h3>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="GITHUB_USER">GitHub Username</label>
+                        <input type="text" id="GITHUB_USER" class="form-control" placeholder="your-username">
+                    </div>
+                    <div class="form-group">
+                        <label for="GITHUB_TOKEN">GitHub Token (PAT)</label>
+                        <input type="password" id="GITHUB_TOKEN" class="form-control" placeholder="ghp_...">
+                        <small style="color:#718096;">Create at <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a></small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Jira Settings -->
+            <div class="settings-section">
+                <h3><i class="fab fa-jira" style="color:#0052CC;"></i> Jira</h3>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="JIRA_URL">Jira URL</label>
+                        <input type="text" id="JIRA_URL" class="form-control" placeholder="https://issues.redhat.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="JIRA_USERNAME">Jira Username</label>
+                        <input type="text" id="JIRA_USERNAME" class="form-control" placeholder="rgangwar@redhat.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="JIRA_TOKEN">Jira Token / Password</label>
+                        <input type="password" id="JIRA_TOKEN" class="form-control" placeholder="Your Jira PAT or password">
+                        <small style="color:#718096;">Personal Access Token from Jira profile settings</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- General Settings -->
+            <div class="settings-section">
+                <h3><i class="fas fa-user"></i> General</h3>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="GIT_AUTHOR_NAME">Your Name (for reports)</label>
+                        <input type="text" id="GIT_AUTHOR_NAME" class="form-control" placeholder="Rahul Gangwar">
+                    </div>
+                    <div class="form-group">
+                        <label for="RAG_ENABLED">Knowledge Base (RAG)</label>
+                        <select id="RAG_ENABLED" class="form-control">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:1rem;margin-top:2rem;">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fas fa-save"></i> Save Settings
+                </button>
+                <span id="saveStatus" style="align-self:center;display:none;color:#48bb78;font-weight:600;"></span>
+            </div>
+        </form>
+
+        <div style="margin-top:2rem;padding:1rem;background:#faf5ff;border-radius:0.5rem;border-left:4px solid #805ad5;">
+            <h4 style="margin-bottom:0.5rem;"><i class="fas fa-info-circle"></i> Notes</h4>
+            <ul style="margin:0;padding-left:1.25rem;color:#553c9a;font-size:0.9rem;">
+                <li>Settings are saved to <code id="envFilePath">.env</code> in the project root</li>
+                <li>Masked fields (***) won't be overwritten unless you enter a new value</li>
+                <li>LLM mode changes take effect immediately (no restart needed)</li>
+                <li>For GitHub and Jira, you may also need to run <code>gh auth login</code> for CLI access</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    loadSettings();
+
+    $('#settingsForm').on('submit', function(e) {
+        e.preventDefault();
+        saveSettings();
+    });
+});
+
+function loadSettings() {
+    $.get('/api/settings', function(data) {
+        $('#LLM_MODE').val(data.LLM_MODE || 'ollama');
+        $('#OLLAMA_BASE_URL').val(data.OLLAMA_BASE_URL || 'http://localhost:11434');
+        $('#OLLAMA_MODEL').val(data.OLLAMA_MODEL || 'llama3');
+        $('#CLAUDE_MODEL').val(data.CLAUDE_MODEL || 'claude-sonnet-4-20250514');
+        $('#CLAUDE_CODE_USE_VERTEX').val(data.CLAUDE_CODE_USE_VERTEX || '');
+        $('#ANTHROPIC_VERTEX_PROJECT_ID').val(data.ANTHROPIC_VERTEX_PROJECT_ID || '');
+        $('#CLOUD_ML_REGION').val(data.CLOUD_ML_REGION || '');
+        $('#GITHUB_USER').val(data.GITHUB_USER || '');
+        $('#JIRA_URL').val(data.JIRA_URL || '');
+        $('#JIRA_USERNAME').val(data.JIRA_USERNAME || '');
+        $('#GIT_AUTHOR_NAME').val(data.GIT_AUTHOR_NAME || '');
+        $('#RAG_ENABLED').val(data.RAG_ENABLED || 'true');
+        $('#envFilePath').text(data.env_file || '.env');
+
+        // Show masked indicators for secrets
+        if (data.GITHUB_TOKEN) $('#GITHUB_TOKEN').attr('placeholder', '••• (configured)');
+        if (data.JIRA_TOKEN) $('#JIRA_TOKEN').attr('placeholder', '••• (configured)');
+        if (data.ANTHROPIC_API_KEY) $('#ANTHROPIC_API_KEY').attr('placeholder', '••• (configured)');
+    });
+}
+
+function saveSettings() {
+    var data = {};
+    var fields = ['LLM_MODE', 'OLLAMA_BASE_URL', 'OLLAMA_MODEL', 'CLAUDE_MODEL',
+                  'CLAUDE_CODE_USE_VERTEX', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION',
+                  'GITHUB_USER', 'GITHUB_TOKEN', 'JIRA_URL', 'JIRA_USERNAME', 'JIRA_TOKEN',
+                  'ANTHROPIC_API_KEY', 'GIT_AUTHOR_NAME', 'RAG_ENABLED'];
+
+    fields.forEach(function(f) {
+        var val = $('#' + f).val();
+        if (val && val !== '***') data[f] = val;
+    });
+
+    $.ajax({
+        url: '/api/settings', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                $('#saveStatus').text('✓ Saved! (' + resp.updated.length + ' fields updated)').show();
+                setTimeout(function() { $('#saveStatus').fadeOut(); }, 3000);
+            }
+        },
+        error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed to save')); }
+    });
+}
+</script>
+
+<style>
+.settings-section { margin-bottom: 2rem; padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0; }
+.settings-section h3 { margin-bottom: 1rem; color: #2d3748; }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 768px) { .settings-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}

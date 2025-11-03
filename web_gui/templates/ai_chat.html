@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+
+{% block title %}AI Chat{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0" id="chat-title">🤖 AI Assistant</h5>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <span id="model-badge" class="badge bg-success me-2">●  Connected</span>
+                        <button class="btn btn-sm btn-outline-info" onclick="toggleMode()" id="mode-toggle-btn" title="Switch between Claude and Ollama">
+                            <i class="fas fa-exchange-alt"></i> Switch
+                        </button>
+                        <select id="model-select" class="form-select form-select-sm d-inline-block" style="width: auto;" onchange="switchModel()">
+                            <option value="llama3">llama3</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-light" onclick="clearChat()">Clear</button>
+                    </div>
+                </div>
+                <div class="card-body p-0 d-flex flex-column" style="min-height: 70vh;">
+                    <div id="chat-messages" class="chat-thread p-3 flex-grow-1">
+                        <div class="text-center text-muted py-5" id="welcome-msg">
+                            <h4>🤖 Welcome to AI Chat</h4>
+                            <p id="welcome-subtitle">Powered by AI</p>
+                            <div class="row mt-4 justify-content-center">
+                                <div class="col-md-3">
+                                    <div class="card bg-dark text-light p-3 cursor-pointer suggestion-card" onclick="useSuggestion('Review this Go code for security issues')">
+                                        <small>🔍 Code Review</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-dark text-light p-3 cursor-pointer suggestion-card" onclick="useSuggestion('Generate e2e test cases for an OpenShift operator upgrade')">
+                                        <small>🧪 Test Generation</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-dark text-light p-3 cursor-pointer suggestion-card" onclick="useSuggestion('Debug: pods stuck in CrashLoopBackOff in openshift-authentication namespace')">
+                                        <small>🐛 Cluster Debug</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="border-top p-3 bg-light">
+                        <form id="chat-form" onsubmit="sendMessage(event)">
+                            <div class="input-group">
+                                <textarea id="user-input" class="form-control" rows="2"
+                                    placeholder="Ask anything about OpenShift, code review, testing..."
+                                    onkeydown="handleKeyDown(event)"></textarea>
+                                <button type="submit" class="btn btn-primary" id="send-btn">
+                                    <span id="send-icon">➤</span>
+                                    <span id="loading-icon" class="d-none">
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    </span>
+                                </button>
+                            </div>
+                            <small class="text-muted mt-1 d-block">Press Enter to send, Shift+Enter for new line</small>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.cursor-pointer { cursor: pointer; }
+.suggestion-card:hover { background-color: #2d2d4e !important; transform: translateY(-2px); transition: all 0.2s; }
+
+.chat-thread {
+    height: 65vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chat-row {
+    display: flex;
+    width: 100%;
+}
+.chat-row-user { justify-content: flex-end; }
+.chat-row-assistant { justify-content: flex-start; }
+
+.msg-user {
+    background: #2563eb;
+    color: #f8fafc;
+    border-radius: 16px 16px 4px 16px;
+    padding: 12px 16px;
+    max-width: min(75%, 720px);
+    font-size: 14px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.msg-assistant {
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 16px 16px 16px 4px;
+    padding: 18px 22px;
+    max-width: min(92%, 900px);
+    font-size: 14px;
+    line-height: 1.65;
+    word-break: break-word;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+.chat-content { width: 100%; }
+
+.chat-content .chat-heading,
+.msg-assistant h2, .msg-assistant h3, .msg-assistant h4, .msg-assistant h5 {
+    color: #93c5fd;
+    font-weight: 600;
+    margin: 1rem 0 0.5rem;
+    line-height: 1.35;
+}
+.chat-content h2, .msg-assistant h2 { font-size: 1.25rem; }
+.chat-content h3, .msg-assistant h3 { font-size: 1.1rem; }
+.chat-content h4, .msg-assistant h4 { font-size: 1rem; }
+.chat-content h5, .msg-assistant h5 { font-size: 0.95rem; color: #bfdbfe; }
+
+.chat-content .chat-para,
+.msg-assistant p {
+    margin: 0 0 0.65rem;
+    line-height: 1.65;
+}
+
+.chat-content .chat-spacer { height: 0.5rem; }
+
+.chat-content strong, .msg-assistant strong { color: #fde68a; font-weight: 600; }
+.chat-content em, .msg-assistant em { color: #c4b5fd; }
+
+.chat-content .chat-list,
+.msg-assistant ul, .msg-assistant ol {
+    margin: 0.35rem 0 0.75rem 1.25rem;
+    padding-left: 1rem;
+}
+.chat-content .chat-list li,
+.msg-assistant li {
+    margin-bottom: 0.35rem;
+    line-height: 1.6;
+}
+.chat-content .chat-list.ordered { list-style-type: decimal; }
+
+.chat-content .chat-subitem {
+    margin: 0.25rem 0 0.5rem 1.5rem;
+    padding-left: 0.5rem;
+    border-left: 2px solid #475569;
+}
+.chat-content .chat-label {
+    color: #7dd3fc;
+    font-weight: 600;
+    margin-right: 0.35rem;
+}
+
+.chat-content .chat-quote,
+.msg-assistant blockquote {
+    border-left: 3px solid #6366f1;
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    background: #0f172a;
+    color: #cbd5e1;
+    border-radius: 0 6px 6px 0;
+}
+
+.chat-content .code-block,
+.msg-assistant .code-block {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 0.75rem 0;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.chat-content .code-block code,
+.msg-assistant .code-block code {
+    color: #a5f3fc;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    white-space: pre;
+    display: block;
+}
+
+.chat-content .inline-code,
+.msg-assistant .inline-code {
+    background: #0f172a;
+    color: #7dd3fc;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.chat-content .chat-link,
+.msg-assistant .chat-link {
+    color: #60a5fa;
+    text-decoration: underline;
+}
+
+.chat-content .chat-table,
+.msg-assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 13px;
+}
+.chat-content .chat-table th,
+.chat-content .chat-table td,
+.msg-assistant th, .msg-assistant td {
+    border: 1px solid #475569;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+.chat-content .chat-table th,
+.msg-assistant th {
+    background: #0f172a;
+    color: #93c5fd;
+}
+
+.chat-content .chat-hr,
+.msg-assistant hr {
+    border: none;
+    border-top: 1px solid #475569;
+    margin: 1rem 0;
+}
+
+#chat-messages::-webkit-scrollbar { width: 8px; }
+#chat-messages::-webkit-scrollbar-track { background: #1a1a2e; }
+#chat-messages::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+#chat-messages::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+#user-input {
+    resize: vertical;
+    min-height: 52px;
+    max-height: 160px;
+}
+</style>
+
+<script>
+let chatHistory = [];
+
+async function checkOllamaStatus() {
+    try {
+        const resp = await fetch('/api/ai/status');
+        const data = await resp.json();
+        const badge = document.getElementById('model-badge');
+        const select = document.getElementById('model-select');
+        const title = document.getElementById('chat-title');
+        const subtitle = document.getElementById('welcome-subtitle');
+
+        const mode = data.mode || 'ollama';
+
+        if (mode === 'claude') {
+            title.textContent = '🧠 AI Assistant (Claude)';
+            if (subtitle) subtitle.textContent = 'Powered by Claude via Vertex AI';
+            badge.className = 'badge bg-purple me-2';
+            badge.style.background = '#805ad5';
+            badge.textContent = '● Claude';
+            select.innerHTML = '';
+            ['claude-sonnet-4-5@20250929', 'claude-haiku-4-5@20251001'].forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m.split('@')[0];
+                if (m === (data.claude_model || data.model)) opt.selected = true;
+                select.appendChild(opt);
+            });
+        } else if (mode === 'ollama') {
+            title.textContent = '🦙 AI Assistant (Ollama)';
+            if (subtitle) subtitle.textContent = 'Powered by local ' + (data.model || 'llama3') + ' via Ollama';
+            if (data.available) {
+                badge.className = 'badge bg-success me-2';
+                badge.style.background = '';
+                badge.textContent = '● Connected';
+                select.innerHTML = '';
+                const models = (typeof getOllamaModelsFromStatus === 'function')
+                    ? getOllamaModelsFromStatus(data)
+                    : (data.models || ['llama3']).filter(m => m.indexOf('nomic-embed') === -1);
+                models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (m === (data.ollama_model || data.model)) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } else {
+                badge.className = 'badge bg-danger me-2';
+                badge.style.background = '';
+                badge.textContent = '● Disconnected';
+            }
+        } else {
+            title.textContent = '⚡ AI Assistant (Template)';
+            if (subtitle) subtitle.textContent = 'Pattern-based mode (no LLM)';
+            badge.className = 'badge bg-secondary me-2';
+            badge.style.background = '';
+            badge.textContent = '● Template';
+            select.innerHTML = '<option>template</option>';
+        }
+    } catch(e) {
+        document.getElementById('model-badge').className = 'badge bg-danger me-2';
+        document.getElementById('model-badge').textContent = '● Error';
+    }
+}
+
+async function toggleMode() {
+    try {
+        const resp = await fetch('/api/ai/status');
+        const data = await resp.json();
+        const newMode = data.mode === 'claude' ? 'ollama' : 'claude';
+        const switchResp = await fetch('/api/ai/switch-mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode: newMode})
+        });
+        await switchResp.json();
+        checkOllamaStatus();
+    } catch(e) { console.error(e); }
+}
+
+async function switchModel() {
+    const model = document.getElementById('model-select').value;
+    try {
+        await fetch('/api/ai/switch-mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({model: model})
+        });
+        checkOllamaStatus();
+    } catch(e) { console.error(e); }
+}
+
+function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(e);
+    }
+}
+
+function useSuggestion(text) {
+    document.getElementById('user-input').value = text;
+    document.getElementById('user-input').focus();
+}
+
+function clearChat() {
+    chatHistory = [];
+    document.getElementById('chat-messages').innerHTML = '';
+    document.getElementById('welcome-msg')?.remove();
+}
+
+function appendMessage(role, content) {
+    const container = document.getElementById('chat-messages');
+    const welcome = document.getElementById('welcome-msg');
+    if (welcome) welcome.remove();
+
+    const row = document.createElement('div');
+    row.className = `chat-row chat-row-${role}`;
+
+    const div = document.createElement('div');
+    div.className = role === 'user' ? 'msg-user' : 'msg-assistant';
+
+    if (role === 'assistant') {
+        div.innerHTML = formatMarkdown(content);
+    } else {
+        div.textContent = content;
+    }
+
+    row.appendChild(div);
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+    return div;
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function formatInline(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+    s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="chat-link">$1</a>');
+    return s;
+}
+
+function formatMarkdown(text) {
+    if (!text) return '';
+
+    const codeBlocks = [];
+    let src = text.replace(/```(\w*)[\r\n]?([\s\S]*?)```/g, (_, lang, code) => {
+        const idx = codeBlocks.length;
+        const langClass = lang ? `language-${lang}` : 'language-text';
+        codeBlocks.push(
+            `<pre class="code-block"><code class="${langClass}">${escapeHtml(code.trim())}</code></pre>`
+        );
+        return `\x00CODE${idx}\x00`;
+    });
+
+    const lines = src.split(/\r?\n/);
+    const out = [];
+    let inUl = false;
+    let inOl = false;
+    let tableRows = [];
+
+    function closeLists() {
+        if (inUl) { out.push('</ul>'); inUl = false; }
+        if (inOl) { out.push('</ol>'); inOl = false; }
+    }
+
+    function flushTable() {
+        if (!tableRows.length) return;
+        let html = '<table class="chat-table"><tbody>';
+        tableRows.forEach((row, i) => {
+            const cellTag = i === 0 ? 'th' : 'td';
+            html += '<tr>' + row.map(c => `<${cellTag}>${formatInline(c.trim())}</${cellTag}>`).join('') + '</tr>';
+        });
+        html += '</tbody></table>';
+        out.push(html);
+        tableRows = [];
+    }
+
+    function emitCodePlaceholder(line) {
+        return line.replace(/\x00CODE(\d+)\x00/g, (_, i) => {
+            closeLists();
+            flushTable();
+            return codeBlocks[Number(i)] || '';
+        });
+    }
+
+    for (const rawLine of lines) {
+        const line = emitCodePlaceholder(rawLine);
+        if (line.includes('\x00CODE')) continue;
+
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+            closeLists();
+            flushTable();
+            out.push('<div class="chat-spacer"></div>');
+            continue;
+        }
+
+        if (trimmed.includes('|') && trimmed.startsWith('|')) {
+            if (/^\|[\s\-:|]+\|$/.test(trimmed)) continue;
+            closeLists();
+            tableRows.push(trimmed.split('|').slice(1, -1));
+            continue;
+        }
+        flushTable();
+
+        let m;
+        if ((m = trimmed.match(/^#### (.+)$/))) {
+            closeLists();
+            out.push(`<h5 class="chat-heading">${formatInline(m[1])}</h5>`);
+            continue;
+        }
+        if ((m = trimmed.match(/^### (.+)$/))) {
+            closeLists();
+            out.push(`<h4 class="chat-heading">${formatInline(m[1])}</h4>`);
+            continue;
+        }
+        if ((m = trimmed.match(/^## (.+)$/))) {
+            closeLists();
+            out.push(`<h3 class="chat-heading">${formatInline(m[1])}</h3>`);
+            continue;
+        }
+        if ((m = trimmed.match(/^# (.+)$/))) {
+            closeLists();
+            out.push(`<h2 class="chat-heading">${formatInline(m[1])}</h2>`);
+            continue;
+        }
+
+        if (/^(-{3,}|\*{3,})$/.test(trimmed)) {
+            closeLists();
+            out.push('<hr class="chat-hr">');
+            continue;
+        }
+
+        if ((m = trimmed.match(/^>\s?(.*)$/))) {
+            closeLists();
+            out.push(`<blockquote class="chat-quote">${formatInline(m[1])}</blockquote>`);
+            continue;
+        }
+
+        if ((m = line.match(/^[\s]*[-*•]\s+(.+)$/))) {
+            if (inOl) { out.push('</ol>'); inOl = false; }
+            if (!inUl) { out.push('<ul class="chat-list">'); inUl = true; }
+            out.push(`<li>${formatInline(m[1])}</li>`);
+            continue;
+        }
+
+        if ((m = line.match(/^[\s]*\d+\.\s+(.+)$/))) {
+            if (inUl) { out.push('</ul>'); inUl = false; }
+            if (!inOl) { out.push('<ol class="chat-list ordered">'); inOl = true; }
+            out.push(`<li>${formatInline(m[1])}</li>`);
+            continue;
+        }
+
+        if ((m = line.match(/^[\s]*\(([a-zA-Z])\)\s+(.+)$/))) {
+            closeLists();
+            out.push(`<p class="chat-subitem"><span class="chat-label">(${m[1]})</span> ${formatInline(m[2])}</p>`);
+            continue;
+        }
+
+        closeLists();
+        out.push(`<p class="chat-para">${formatInline(line)}</p>`);
+    }
+
+    closeLists();
+    flushTable();
+
+    let html = out.join('\n').replace(/\x00CODE(\d+)\x00/g, (_, i) => codeBlocks[Number(i)] || '');
+    return `<div class="chat-content">${html}</div>`;
+}
+
+function parseSseToken(payload) {
+    const raw = (payload || '').trim();
+    if (!raw) return { token: '' };
+    if (raw === '[DONE]') return { done: true };
+    if (raw.startsWith('[ERROR:')) return { error: raw };
+
+    // Server sends json.dumps(token) per SSE event
+    try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'string') return { token: parsed };
+        if (parsed == null) return { token: '' };
+        return { token: String(parsed) };
+    } catch (_) {
+        // Fallback: unwrap JSON string fragments when parse fails (e.g. trailing \\r)
+        if (raw.startsWith('"')) {
+            try {
+                return { token: JSON.parse(raw.replace(/\r/g, '')) };
+            } catch (e2) {
+                return { token: unwrapJsonString(raw) };
+            }
+        }
+        return { token: raw };
+    }
+}
+
+function unwrapJsonString(raw) {
+    let s = raw.replace(/\r/g, '');
+    if (s.startsWith('"') && s.endsWith('"')) {
+        s = s.slice(1, -1);
+    }
+    return s
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+}
+
+function consumeSseBuffer(buffer, onEvent) {
+    const normalized = buffer.replace(/\r\n/g, '\n');
+    const parts = normalized.split('\n\n');
+    const remainder = parts.pop() || '';
+    for (const part of parts) {
+        if (!part.trim()) continue;
+        const dataLines = part.split('\n').filter(l => l.startsWith('data: '));
+        for (const dataLine of dataLines) {
+            const event = parseSseToken(dataLine.slice(6));
+            onEvent(event);
+        }
+    }
+    return remainder;
+}
+
+async function sendMessage(e) {
+    e.preventDefault();
+    const input = document.getElementById('user-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    appendMessage('user', text);
+    chatHistory.push({role: 'user', content: text});
+
+    const sendBtn = document.getElementById('send-btn');
+    const sendIcon = document.getElementById('send-icon');
+    const loadingIcon = document.getElementById('loading-icon');
+    sendBtn.disabled = true;
+    sendIcon.classList.add('d-none');
+    loadingIcon.classList.remove('d-none');
+
+    const assistantDiv = appendMessage('assistant', '');
+    const model = document.getElementById('model-select').value;
+
+    try {
+        const resp = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({messages: chatHistory, model: model})
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = '';
+        let sseBuffer = '';
+
+        while (true) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            sseBuffer += decoder.decode(value, { stream: true });
+            sseBuffer = consumeSseBuffer(sseBuffer, (event) => {
+                if (event.error) throw new Error(event.error);
+                if (event.done) return;
+                if (event.token) {
+                    fullResponse += event.token;
+                    assistantDiv.innerHTML = formatMarkdown(fullResponse);
+                }
+            });
+            document.getElementById('chat-messages').scrollTop =
+                document.getElementById('chat-messages').scrollHeight;
+        }
+
+        sseBuffer += decoder.decode();
+        consumeSseBuffer(sseBuffer + '\n\n', (event) => {
+            if (event.error) throw new Error(event.error);
+            if (event.token) {
+                fullResponse += event.token;
+                assistantDiv.innerHTML = formatMarkdown(fullResponse);
+            }
+        });
+
+        chatHistory.push({role: 'assistant', content: fullResponse});
+    } catch(err) {
+        assistantDiv.innerHTML = `<span class="text-danger">Error: ${err.message}. Check if your LLM backend is running.</span>`;
+    } finally {
+        sendBtn.disabled = false;
+        sendIcon.classList.remove('d-none');
+        loadingIcon.classList.add('d-none');
+    }
+}
+
+checkOllamaStatus();
+setInterval(checkOllamaStatus, 30000);
+</script>
+{% endblock %}

@@ -19,6 +19,8 @@ def review_code_line_by_line(
     language: Optional[str] = None,
     review_focus: Optional[List[str]] = None,
     severity_threshold: str = "info",
+    is_pr_diff: bool = False,
+    previous_issues: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Review code line-by-line and provide inline comments with improvement suggestions.
 
@@ -70,6 +72,35 @@ def review_code_line_by_line(
 
         if not code_content:
             raise ValueError("Either code_content or file_path must be provided")
+
+        # Try LLM-powered review first
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import review_code, is_available, get_mode, get_model
+            if is_available():
+                llm_result = review_code(
+                    code_content,
+                    language=language or "unknown",
+                    focus=review_focus,
+                    is_pr_diff=is_pr_diff,
+                    previous_issues=previous_issues
+                )
+                if llm_result:
+                    current_mode = get_mode()
+                    current_model = get_model()
+                    mode_label = f"{current_mode} ({current_model})"
+                    logger.info(f"LLM-powered code review completed successfully via {mode_label}")
+                    return {
+                        "status": "success",
+                        "file_path": file_path or "inline_code",
+                        "language": language or "auto-detected",
+                        "mode": "llm",
+                        "llm_provider": current_mode,
+                        "llm_model": current_model,
+                        "llm_review": llm_result,
+                        "message": f"AI-powered code review completed ({mode_label})",
+                    }
+        except Exception as llm_err:
+            logger.warning(f"LLM review unavailable, falling back to pattern-based: {llm_err}")
 
         logger.info(f"Starting line-by-line code review (language: {language or 'auto-detect'})")
 

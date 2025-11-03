@@ -4,11 +4,10 @@
       "command": "python",
       "args": [
         "-m",
-        "workshop_mcp_server.web_gui.app"
+        "workshop_mcp_server.src.main"
       ],
       "env": {
-        "PYTHONPATH": "${workspaceFolder}",
-        "FLASK_DEBUG": "False"
+        "PYTHONPATH": "${workspaceFolder}"
       },
       "description": "AI-Powered Development Assistant with code review, GitHub PR automation, OpenShift test generation & execution, must-gather analysis, and cluster debugging capabilities",
       "version": "1.0.0",

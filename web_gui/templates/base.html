@@ -6,23 +6,57 @@
     <title>{% block title %}MCP Server{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+    .top-nav { background: #1a202c; padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000; }
+    .top-nav .brand { color: white; font-weight: 700; font-size: 1rem; white-space: nowrap; }
+    .top-nav .brand i { color: #805ad5; margin-right: 0.5rem; }
+    .nav-links { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+    .nav-links a { color: #cbd5e0; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 0.25rem; font-size: 0.75rem; white-space: nowrap; transition: all 0.2s; }
+    .nav-links a:hover { background: #2d3748; color: white; }
+    .nav-links a.active { background: #805ad5; color: white; }
+    .nav-links .separator { color: #4a5568; margin: 0 0.15rem; }
+    .mode-bar { display: flex; align-items: center; gap: 0.5rem; }
+    .mode-bar select { background: #2d3748; color: #e2e8f0; border: 1px solid #4a5568; border-radius: 0.25rem; padding: 0.2rem 0.4rem; font-size: 0.75rem; }
+    .mode-bar .mode-indicator { font-size: 0.85rem; }
+    </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar">
-        <div class="container">
-            <div class="nav-brand">
-                <i class="fas fa-robot"></i>
-                <span>MCP Server Dashboard</span>
-            </div>
-            <ul class="nav-menu">
-                <li><a href="/" class="{% if request.path == '/' %}active{% endif %}"><i class="fas fa-home"></i> Home</a></li>
-                <li><a href="/code-review" class="{% if request.path == '/code-review' %}active{% endif %}"><i class="fas fa-code"></i> Code Review</a></li>
-                <li><a href="/pr-review" class="{% if request.path == '/pr-review' %}active{% endif %}"><i class="fab fa-github"></i> PR Review</a></li>
-                <li><a href="/ocp-testing" class="{% if request.path == '/ocp-testing' %}active{% endif %}"><i class="fas fa-vial"></i> OCP Testing</a></li>
-                <li><a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> Must-Gather</a></li>
-                <li><a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Cluster Debug</a></li>
-            </ul>
+    <nav class="top-nav">
+        <a href="/" style="text-decoration:none;"><div class="brand"><i class="fas fa-robot"></i> MCP Dashboard</div></a>
+        <div class="nav-links">
+            <a href="/" class="{% if request.path == '/' %}active{% endif %}"><i class="fas fa-home"></i> Home</a>
+            <span class="separator">|</span>
+            <a href="/code-review" class="{% if request.path == '/code-review' %}active{% endif %}"><i class="fas fa-code"></i> Review</a>
+            <a href="/pr-review" class="{% if request.path == '/pr-review' %}active{% endif %}"><i class="fab fa-github"></i> PR</a>
+            <a href="/ocp-testing" class="{% if request.path == '/ocp-testing' %}active{% endif %}"><i class="fas fa-vial"></i> Testing</a>
+            <a href="/test-plan-generator" class="{% if request.path == '/test-plan-generator' %}active{% endif %}"><i class="fas fa-clipboard-check"></i> TestPlan</a>
+            <a href="/regression-test-agent" class="{% if request.path == '/regression-test-agent' %}active{% endif %}"><i class="fas fa-shield-alt"></i> Regression</a>
+            <span class="separator">|</span>
+            <a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Debug</a>
+            <a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> MustGather</a>
+            <span class="separator">|</span>
+            <a href="/code-assistant" class="{% if request.path == '/code-assistant' %}active{% endif %}"><i class="fas fa-robot"></i> Code AI</a>
+            <a href="/knowledge-base" class="{% if request.path == '/knowledge-base' %}active{% endif %}"><i class="fas fa-book"></i> KB</a>
+            <a href="/ai-chat" class="{% if request.path == '/ai-chat' %}active{% endif %}"><i class="fas fa-comments"></i> Chat</a>
+            <span class="separator">|</span>
+            <a href="/work-reports" class="{% if request.path == '/work-reports' %}active{% endif %}"><i class="fas fa-file-alt"></i> Reports</a>
+            <a href="/jira-manager-improved" class="{% if request.path == '/jira-manager-improved' %}active{% endif %}"><i class="fab fa-jira"></i> Jira</a>
+            <a href="/polarion-qa" class="{% if request.path == '/polarion-qa' %}active{% endif %}"><i class="fas fa-search"></i> Polarion</a>
+            <span class="separator">|</span>
+            <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}"><i class="fas fa-cog"></i></a>
+        </div>
+        <div class="mode-bar">
+            <span id="modeIndicator" class="mode-indicator">●</span>
+            <select id="modeSelect" class="mode-select">
+                <option value="ollama">🤖 Ollama</option>
+                <option value="claude">🧠 Claude</option>
+                <option value="template">⚡ Rules</option>
+            </select>
+            <select id="modelSelect" title="Select model">
+                <option value="llama3">llama3</option>
+            </select>
         </div>
     </nav>
 
@@ -32,11 +66,165 @@
 
     <footer class="footer">
         <div class="container">
-            <p>&copy; 2024 MCP Server Dashboard | Powered by Claude Code</p>
+            <p>&copy; 2024 MCP Server Dashboard</p>
         </div>
     </footer>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+    var claudeModels = ['claude-sonnet-4-5@20250929', 'claude-haiku-4-5@20251001'];
+    var DEFAULT_OLLAMA_MODELS = [
+        'gemma4:26b', 'llama3.3:latest', 'llama3', 'qwen2.5-coder:32b',
+        'deepseek-coder:6.7b', 'granite3.3:latest', 'mistral:latest'
+    ];
+
+    function getOllamaModelsFromStatus(data) {
+        var models = (data.models || []).filter(function(m) {
+            return m.indexOf('nomic-embed') === -1;
+        });
+        if (models.length === 0) {
+            models = DEFAULT_OLLAMA_MODELS.slice();
+        }
+        var current = data.ollama_model || data.model;
+        if (current && models.indexOf(current) === -1) {
+            models.unshift(current);
+        }
+        return models;
+    }
+
+    function populateLlmModeSelect(data) {
+        var $select = $('#llm_mode_select');
+        if (!$select.length) return;
+        $select.empty();
+        $select.append($('<option>').val('claude').text('Claude Sonnet 4.5 (Vertex AI)'));
+        getOllamaModelsFromStatus(data).forEach(function(m) {
+            $select.append($('<option>').val('ollama:' + m).text(m));
+        });
+        if (data.mode === 'claude') {
+            $select.val('claude');
+        } else {
+            var model = data.ollama_model || data.model || 'llama3';
+            $select.val('ollama:' + model);
+        }
+    }
+
+    function updatePageLlmBadge(text, isError) {
+        var $badge = $('#llm_badge, #llm_status_badge');
+        if (!$badge.length) return;
+        if (isError) {
+            $badge.text(text || 'Error').css({'background': '#fed7d7', 'color': '#9b2c2c'});
+        } else if (text === '...') {
+            $badge.text('...').css({'background': '#fefcbf', 'color': '#975a16'});
+        } else {
+            $badge.text(text).css({'background': '#c6f6d5', 'color': '#276749'});
+        }
+    }
+
+    function switchPageLLM() {
+        var sel = $('#llm_mode_select').val();
+        if (!sel) return;
+        var mode = sel === 'claude' ? 'claude' : 'ollama';
+        var model = sel === 'claude' ? '' : sel.replace('ollama:', '');
+        updatePageLlmBadge('...');
+        $.ajax({
+            url: '/api/ai/switch-mode',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({mode: mode, model: model}),
+            success: function(r) {
+                updatePageLlmBadge(r.model || r.ollama_model || model);
+                updateIndicator(r);
+                updateModelDropdown(r);
+            },
+            error: function() { updatePageLlmBadge('Error', true); }
+        });
+    }
+
+    function initPageLlmSelect() {
+        if (!$('#llm_mode_select').length) return;
+        $.get('/api/ai/status', function(data) {
+            populateLlmModeSelect(data);
+            updatePageLlmBadge(data.model);
+        });
+    }
+
+    window.switchPageLLM = switchPageLLM;
+    window.switchLLM = switchPageLLM;
+    window.switchLLMMode = switchPageLLM;
+    window.populateLlmModeSelect = populateLlmModeSelect;
+    window.getOllamaModelsFromStatus = getOllamaModelsFromStatus;
+
+    $(document).ready(function() {
+        $.get('/api/ai/status', function(data) {
+            $('#modeSelect').val(data.mode || 'template');
+            updateIndicator(data);
+            updateModelDropdown(data);
+            $('#modelSelect').toggle(data.mode !== 'template');
+            populateLlmModeSelect(data);
+            updatePageLlmBadge(data.model);
+        });
+
+        $('#modeSelect').on('change', function() {
+            var newMode = $(this).val();
+            $.ajax({
+                url: '/api/ai/switch-mode',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ mode: newMode }),
+                success: function(resp) {
+                    updateIndicator(resp);
+                    updateModelDropdown(resp);
+                    populateLlmModeSelect(resp);
+                    updatePageLlmBadge(resp.model);
+                    $('#modelSelect').toggle(resp.mode !== 'template');
+                }
+            });
+        });
+
+        $('#modelSelect').on('change', function() {
+            $.ajax({
+                url: '/api/ai/switch-mode',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ model: $(this).val() }),
+                success: function(resp) {
+                    updateIndicator(resp);
+                    populateLlmModeSelect(resp);
+                    updatePageLlmBadge(resp.model);
+                }
+            });
+        });
+    });
+
+    function updateIndicator(data) {
+        var color = '#a0aec0';
+        if (data.mode === 'ollama') {
+            color = data.ollama_available || data.available ? '#48bb78' : '#ecc94b';
+        } else if (data.mode === 'claude') {
+            color = data.claude_configured !== false ? '#805ad5' : '#ecc94b';
+        }
+        $('#modeIndicator').css('color', color);
+    }
+
+    function updateModelDropdown(data) {
+        var modelSelect = $('#modelSelect');
+        modelSelect.empty();
+
+        if (data.mode === 'ollama') {
+            var models = getOllamaModelsFromStatus(data);
+            models.forEach(function(m) {
+                modelSelect.append($('<option>').val(m).text(m));
+            });
+            modelSelect.val(data.ollama_model || data.model || models[0] || 'llama3');
+        } else if (data.mode === 'claude') {
+            claudeModels.forEach(function(m) {
+                var label = m.split('@')[0];
+                modelSelect.append($('<option>').val(m).text(label));
+            });
+            modelSelect.val(data.claude_model || data.model || claudeModels[0]);
+        }
+    }
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Work Reports - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-file-alt"></i> Work Report Generator</h1>
+        <p>Generate daily standup reports from Jira issues and GitHub PRs</p>
+    </div>
+
+    <!-- LLM Selector -->
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
+        <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
+            <option value="">Loading models...</option>
+        </select>
+        <span id="llm_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+    </div>
+
+    <div class="review-container">
+        <!-- Controls -->
+        <div class="review-form">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+                <div class="form-group">
+                    <label for="report_date">Report Date</label>
+                    <input type="date" id="report_date" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="report_user">Your Name</label>
+                    <input type="text" id="report_user" class="form-control" value="" placeholder="e.g., Rahul Gangwar">
+                </div>
+                <div class="form-group">
+                    <label for="report_format">Format</label>
+                    <select id="report_format" class="form-control">
+                        <option value="brief">Brief (Slack standup)</option>
+                        <option value="full">Full Report</option>
+                        <option value="all">Both</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:0.75rem;margin-bottom:1.5rem;">
+                <button onclick="fetchJira()" class="btn" style="background:#0052CC;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                    <i class="fas fa-cloud-download-alt"></i> Fetch Jira Issues
+                </button>
+                <button onclick="fetchGitHub()" class="btn" style="background:#24292e;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                    <i class="fab fa-github"></i> Fetch GitHub PRs
+                </button>
+                <button onclick="generateReport()" class="btn btn-primary btn-lg" style="margin-left:auto;">
+                    <i class="fas fa-magic"></i> Generate Report
+                </button>
+            </div>
+
+            <!-- Jira Issues -->
+            <div style="margin-bottom:1.5rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h4><i class="fas fa-tasks" style="color:#0052CC;"></i> Jira Issues</h4>
+                    <button onclick="addJiraRow()" class="btn" style="background:#edf2f7;border:none;padding:0.3rem 0.75rem;border-radius:0.25rem;cursor:pointer;font-size:0.8rem;">+ Add</button>
+                </div>
+                <div id="jiraIssues" style="margin-top:0.5rem;">
+                    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead>
+                            <tr style="background:#f7fafc;">
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Key</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Summary</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Status</th>
+                                <th style="padding:0.5rem;text-align:center;border-bottom:1px solid #e2e8f0;">Active</th>
+                                <th style="padding:0.5rem;text-align:center;border-bottom:1px solid #e2e8f0;">Blocked</th>
+                                <th style="padding:0.5rem;border-bottom:1px solid #e2e8f0;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="jiraTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- GitHub PRs -->
+            <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h4><i class="fab fa-github" style="color:#24292e;"></i> GitHub PRs</h4>
+                    <button onclick="addPrRow()" class="btn" style="background:#edf2f7;border:none;padding:0.3rem 0.75rem;border-radius:0.25rem;cursor:pointer;font-size:0.8rem;">+ Add</button>
+                </div>
+                <div id="githubPrs" style="margin-top:0.5rem;">
+                    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead>
+                            <tr style="background:#f7fafc;">
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Repo</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">#</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Title</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">State</th>
+                                <th style="padding:0.5rem;text-align:left;border-bottom:1px solid #e2e8f0;">Section</th>
+                                <th style="padding:0.5rem;border-bottom:1px solid #e2e8f0;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="prTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Report Output -->
+        <div id="reportOutput" class="review-results" style="display:none;margin-top:2rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h2><i class="fas fa-file-alt"></i> Generated Report</h2>
+                <button onclick="copyReport()" class="btn" style="background:#4a5568;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                    <i class="fas fa-copy"></i> Copy to Clipboard
+                </button>
+            </div>
+            <pre id="reportContent" style="background:#1a202c;color:#e2e8f0;padding:1.5rem;border-radius:0.5rem;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:0.85rem;margin-top:1rem;line-height:1.6;"></pre>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Generating report...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Set today's date
+    var today = new Date().toISOString().split('T')[0];
+    $('#report_date').val(today);
+});
+
+function fetchJira() {
+    var date = $('#report_date').val();
+    $.ajax({
+        url: '/api/work-report/fetch-jira', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({date: date}),
+        success: function(resp) {
+            if (resp.issues && resp.issues.length > 0) {
+                $('#jiraTableBody').empty();
+                resp.issues.forEach(function(issue) { addJiraRow(issue); });
+                alert('Fetched ' + resp.issues.length + ' Jira issues');
+            } else {
+                alert(resp.message || 'No Jira issues found. Add manually or set JIRA_URL/JIRA_TOKEN.');
+            }
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || 'Jira fetch failed'); }
+    });
+}
+
+function fetchGitHub() {
+    var date = $('#report_date').val();
+    $.ajax({
+        url: '/api/work-report/fetch-github', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({date: date}),
+        success: function(resp) {
+            if (resp.prs && resp.prs.length > 0) {
+                $('#prTableBody').empty();
+                resp.prs.forEach(function(pr) { addPrRow(pr); });
+                alert('Fetched ' + resp.prs.length + ' GitHub PRs');
+            } else {
+                alert('No GitHub PRs found for this date. Add manually.');
+            }
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || 'GitHub fetch failed'); }
+    });
+}
+
+function addJiraRow(issue) {
+    var data = issue || {key: '', summary: '', status: 'In Progress', has_my_activity: true, blocked: false};
+    var html = '<tr class="jira-row" style="border-bottom:1px solid #edf2f7;">' +
+        '<td style="padding:0.4rem;"><input type="text" class="jira-key form-control" style="font-size:0.8rem;padding:0.25rem;" value="' + (data.key||'') + '" placeholder="OCPQE-12345"></td>' +
+        '<td style="padding:0.4rem;"><input type="text" class="jira-summary form-control" style="font-size:0.8rem;padding:0.25rem;" value="' + (data.summary||'') + '" placeholder="Issue summary"></td>' +
+        '<td style="padding:0.4rem;"><select class="jira-status form-control" style="font-size:0.8rem;padding:0.25rem;">' +
+        '<option' + (data.status==='In Progress'?' selected':'') + '>In Progress</option>' +
+        '<option' + (data.status==='New'?' selected':'') + '>New</option>' +
+        '<option' + (data.status==='TO DO'?' selected':'') + '>TO DO</option>' +
+        '<option' + (data.status==='Closed'?' selected':'') + '>Closed</option>' +
+        '</select></td>' +
+        '<td style="padding:0.4rem;text-align:center;"><input type="checkbox" class="jira-active"' + (data.has_my_activity?' checked':'') + '></td>' +
+        '<td style="padding:0.4rem;text-align:center;"><input type="checkbox" class="jira-blocked"' + (data.blocked?' checked':'') + '></td>' +
+        '<td style="padding:0.4rem;"><button onclick="$(this).closest(\'tr\').remove()" style="background:none;border:none;color:#e53e3e;cursor:pointer;">✕</button></td>' +
+        '</tr>';
+    $('#jiraTableBody').append(html);
+}
+
+function addPrRow(pr) {
+    var data = pr || {repo: '', number: '', title: '', state: 'open', section: 'working_on'};
+    var html = '<tr class="pr-row" style="border-bottom:1px solid #edf2f7;">' +
+        '<td style="padding:0.4rem;"><input type="text" class="pr-repo form-control" style="font-size:0.8rem;padding:0.25rem;width:100px;" value="' + (data.repo||'') + '" placeholder="origin"></td>' +
+        '<td style="padding:0.4rem;"><input type="number" class="pr-number form-control" style="font-size:0.8rem;padding:0.25rem;width:70px;" value="' + (data.number||'') + '" placeholder="12345"></td>' +
+        '<td style="padding:0.4rem;"><input type="text" class="pr-title form-control" style="font-size:0.8rem;padding:0.25rem;" value="' + (data.title||'') + '" placeholder="PR title"></td>' +
+        '<td style="padding:0.4rem;"><select class="pr-state form-control" style="font-size:0.8rem;padding:0.25rem;">' +
+        '<option' + (data.state==='open'?' selected':'') + '>open</option>' +
+        '<option' + (data.state==='closed'?' selected':'') + '>closed</option>' +
+        '<option' + (data.state==='merged'?' selected':'') + '>merged</option>' +
+        '</select></td>' +
+        '<td style="padding:0.4rem;"><select class="pr-section form-control" style="font-size:0.8rem;padding:0.25rem;">' +
+        '<option value="working_on"' + (data.section==='working_on'?' selected':'') + '>Working On</option>' +
+        '<option value="next"' + (data.section==='next'?' selected':'') + '>Plan Next</option>' +
+        '</select></td>' +
+        '<td style="padding:0.4rem;"><button onclick="$(this).closest(\'tr\').remove()" style="background:none;border:none;color:#e53e3e;cursor:pointer;">✕</button></td>' +
+        '</tr>';
+    $('#prTableBody').append(html);
+}
+
+function generateReport() {
+    // Collect Jira issues
+    var jiraIssues = [];
+    $('.jira-row').each(function() {
+        var key = $(this).find('.jira-key').val();
+        if (!key) return;
+        jiraIssues.push({
+            key: key,
+            summary: $(this).find('.jira-summary').val(),
+            status: $(this).find('.jira-status').val(),
+            has_my_activity: $(this).find('.jira-active').is(':checked'),
+            blocked: $(this).find('.jira-blocked').is(':checked'),
+        });
+    });
+
+    // Collect GitHub PRs
+    var githubPrs = [];
+    $('.pr-row').each(function() {
+        var repo = $(this).find('.pr-repo').val();
+        if (!repo) return;
+        githubPrs.push({
+            repo: repo,
+            number: parseInt($(this).find('.pr-number').val()) || 0,
+            title: $(this).find('.pr-title').val(),
+            state: $(this).find('.pr-state').val(),
+            section: $(this).find('.pr-section').val(),
+            url: 'https://github.com/openshift/' + repo + '/pull/' + $(this).find('.pr-number').val(),
+        });
+    });
+
+    var data = {
+        date: $('#report_date').val(),
+        user_name: $('#report_user').val(),
+        format: $('#report_format').val(),
+        jira_issues: jiraIssues,
+        github_prs: githubPrs,
+    };
+
+    $('#loading').show();
+    $('#reportOutput').hide();
+
+    $.ajax({
+        url: '/api/work-report/generate', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                var report = resp.report || '';
+                if (resp.full_report) report += '\n\n---\nFULL REPORT:\n\n' + resp.full_report;
+                $('#reportContent').text(report);
+                $('#reportOutput').show();
+            } else {
+                alert(resp.error || 'Report generation failed');
+            }
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || 'Failed'); },
+        complete: function() { $('#loading').hide(); }
+    });
+}
+
+function copyReport() {
+    var text = $('#reportContent').text();
+    navigator.clipboard.writeText(text).then(function() {
+        alert('Report copied to clipboard!');
+    });
+}
+</script>
+{% endblock %}

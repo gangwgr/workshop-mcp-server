@@ -22,7 +22,7 @@ echo "======================================"
 echo "Starting Flask server..."
 echo "======================================"
 echo ""
-echo "Access the GUI at: http://localhost:5000"
+echo "Access the GUI at: http://localhost:5001"
 echo "Press Ctrl+C to stop the server"
 echo ""
 

@@ -1,0 +1,1093 @@
+{% extends "base.html" %}
+
+{% block title %}Code Assistant - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-robot"></i> AI Code Assistant</h1>
+        <p>Write code using your indexed repos as context - generates code matching your team's patterns</p>
+    </div>
+
+    <div class="review-container">
+        <!-- LLM Model Selector -->
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
+            <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
+            <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
+                <option value="">Loading models...</option>
+            </select>
+            <span id="llm_status_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
+        </div>
+
+        <ul class="nav nav-tabs" style="list-style: none; display: flex; gap: 1rem; border-bottom: 2px solid var(--border-color); margin-bottom: 2rem; flex-wrap: wrap;">
+            <li><a href="#" class="tab-link active" data-tab="write">Write & Save</a></li>
+            <li><a href="#" class="tab-link" data-tab="browse">File Browser</a></li>
+            <li><a href="#" class="tab-link" data-tab="git">Git Operations</a></li>
+            <li><a href="#" class="tab-link" data-tab="explain">Explain Code</a></li>
+            <li><a href="#" class="tab-link" data-tab="refactor">Refactor Code</a></li>
+        </ul>
+
+        <!-- Write & Save Tab -->
+        <div id="write-tab" class="tab-content">
+            <div class="review-form">
+                <h3><i class="fas fa-code"></i> Generate & Save Code to Your Repo</h3>
+                <form id="writeForm">
+                    <div class="form-group">
+                        <label for="write_task">What do you want to build?</label>
+                        <textarea id="write_task" class="form-control" rows="3"
+                                  placeholder="e.g., Create an OpenShift operator reconciler that watches ConfigMap changes and restarts deployments" required></textarea>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                        <div class="form-group">
+                            <label for="write_lang">Language</label>
+                            <select id="write_lang" class="form-control">
+                                <option value="go">Go</option>
+                                <option value="python">Python</option>
+                                <option value="yaml">YAML</option>
+                                <option value="bash">Bash/Shell</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="java">Java</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="write_collection">Knowledge Base</label>
+                            <select id="write_collection" class="form-control">
+                                <option value="">All collections</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="write_file">Target File Path (full path to save)</label>
+                        <div style="display:flex;gap:0.5rem;">
+                            <input type="text" id="write_file" class="form-control" style="flex:1;"
+                                   placeholder="/Users/rgangwar/office-work/my-project/pkg/controller/reconciler.go">
+                            <button type="button" onclick="pickFile()" class="btn" style="background:#4a5568;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="write_mode">Write Mode</label>
+                        <select id="write_mode" class="form-control">
+                            <option value="create">Create new file</option>
+                            <option value="edit_append">Append to existing file</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="write_context">Additional Context (optional)</label>
+                        <input type="text" id="write_context" class="form-control"
+                               placeholder="e.g., use the existing logger, follows operator-sdk patterns">
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-magic"></i> Generate Only (Preview)
+                        </button>
+                        <button type="button" onclick="generateAndSave()" class="btn btn-lg" style="background:#48bb78;color:white;border:none;padding:0.75rem 1.5rem;border-radius:0.5rem;cursor:pointer;font-size:1rem;">
+                            <i class="fas fa-save"></i> Generate & Save to File
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div id="writeResults" class="review-results" style="display: none;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2><i class="fas fa-file-code"></i> Generated Code</h2>
+                    <div>
+                        <span id="writeKbBadge" class="badge" style="display:none;background:#805ad5;color:white;padding:4px 10px;border-radius:12px;margin-right:8px;">KB Enhanced</span>
+                        <span id="writeSavedBadge" class="badge" style="display:none;background:#48bb78;color:white;padding:4px 10px;border-radius:12px;margin-right:8px;"><i class="fas fa-check"></i> Saved</span>
+                        <button onclick="copyCode('writeContent')" class="btn" style="background:#4a5568;color:white;padding:0.5rem 1rem;border:none;border-radius:0.375rem;cursor:pointer;">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                        <button onclick="saveGeneratedCode()" class="btn" style="background:#48bb78;color:white;padding:0.5rem 1rem;border:none;border-radius:0.375rem;cursor:pointer;margin-left:0.5rem;">
+                            <i class="fas fa-save"></i> Save to File
+                        </button>
+                    </div>
+                </div>
+                <div id="writeSaveInfo" style="display:none;padding:0.5rem 1rem;background:#f0fff4;border-radius:0.375rem;margin-top:0.5rem;color:#276749;"></div>
+                <div id="writeContent" style="margin-top:1rem;"></div>
+            </div>
+        </div>
+
+        <!-- File Browser Tab -->
+        <div id="browse-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3><i class="fas fa-folder-open"></i> File Browser</h3>
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                    <input type="text" id="browse_path" class="form-control" style="flex:1;"
+                           value="/Users/rgangwar/office-work">
+                    <button onclick="browsePath()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                        <i class="fas fa-arrow-right"></i> Go
+                    </button>
+                    <button onclick="loadFullTree()" class="btn" style="background:#805ad5;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                        <i class="fas fa-sitemap"></i> Full Tree
+                    </button>
+                </div>
+                <div id="breadcrumb" style="margin-bottom:1rem;font-size:0.85rem;color:#718096;"></div>
+                <div id="fileList" style="max-height:500px;overflow-y:auto;border:1px solid var(--border-color);border-radius:0.5rem;"></div>
+            </div>
+            <div id="fileViewer" style="display:none;margin-top:1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;background:#2d3748;color:white;border-radius:0.5rem 0.5rem 0 0;">
+                    <span id="fileViewerPath" style="font-family:monospace;font-size:0.85rem;"></span>
+                    <div>
+                        <button onclick="editFileInline()" class="btn" style="background:#4299e1;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.25rem;cursor:pointer;font-size:0.8rem;">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button onclick="useAsContext()" class="btn" style="background:#805ad5;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.25rem;cursor:pointer;font-size:0.8rem;">
+                            <i class="fas fa-plus"></i> Use as Context
+                        </button>
+                    </div>
+                </div>
+                <pre id="fileContent" class="code-block" style="margin:0;border-radius:0 0 0.5rem 0.5rem;max-height:400px;overflow-y:auto;"></pre>
+            </div>
+        </div>
+
+        <!-- Git Operations Tab -->
+        <div id="git-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3><i class="fas fa-code-branch"></i> Git Operations</h3>
+                <div class="form-group">
+                    <label for="git_repo">Repository Path</label>
+                    <div style="display:flex;gap:0.5rem;">
+                        <input type="text" id="git_repo" class="form-control" style="flex:1;"
+                               value=""
+                               placeholder="/path/to/your/repo (e.g. /Users/rgangwar/office-work/release)">
+                        <button onclick="gitStatus()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                            <i class="fas fa-sync"></i> Load
+                        </button>
+                    </div>
+                </div>
+
+                <div id="gitInfo" style="display:none;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+                        <div style="padding:1rem;background:#ebf8ff;border-radius:0.5rem;">
+                            <strong>Branch:</strong> <span id="gitBranch" style="color:#2b6cb0;"></span>
+                        </div>
+                        <div style="padding:1rem;background:#f0fff4;border-radius:0.5rem;">
+                            <strong>Status:</strong> <span id="gitStatusText" style="color:#276749;"></span>
+                        </div>
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.5rem;">
+                        <button onclick="showGitAction('branch')" class="git-btn"><i class="fas fa-code-branch"></i> New Branch</button>
+                        <button onclick="showGitAction('rebase')" class="git-btn"><i class="fas fa-layer-group"></i> Rebase</button>
+                        <button onclick="showGitAction('cherrypick')" class="git-btn"><i class="fas fa-cherry"></i> Cherry-Pick</button>
+                        <button onclick="showGitAction('commit')" class="git-btn"><i class="fas fa-check"></i> Commit</button>
+                        <button onclick="showGitAction('push')" class="git-btn"><i class="fas fa-upload"></i> Push</button>
+                        <button onclick="showGitAction('conflicts')" class="git-btn" style="background:#f56565;"><i class="fas fa-exclamation-triangle"></i> Resolve Conflicts</button>
+                    </div>
+
+                    <!-- Dynamic Action Panel -->
+                    <div id="gitActionPanel" style="display:none;padding:1.5rem;background:white;border:1px solid var(--border-color);border-radius:0.5rem;">
+                        <!-- Branch -->
+                        <div id="gitAction_branch" class="git-action" style="display:none;">
+                            <h4>Create New Branch</h4>
+                            <div class="form-group">
+                                <input type="text" id="new_branch_name" class="form-control" placeholder="feature/my-new-feature">
+                            </div>
+                            <div class="form-group">
+                                <input type="text" id="new_branch_base" class="form-control" value="HEAD" placeholder="Base (HEAD, main, origin/main)">
+                            </div>
+                            <button onclick="createBranch()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Create & Checkout</button>
+                        </div>
+
+                        <!-- Rebase -->
+                        <div id="gitAction_rebase" class="git-action" style="display:none;">
+                            <h4>Rebase onto Branch</h4>
+                            <div class="form-group">
+                                <input type="text" id="rebase_onto" class="form-control" value="main" placeholder="Target branch (e.g., main, master)">
+                            </div>
+                            <div style="display:flex;gap:0.5rem;">
+                                <button onclick="doRebase('start')" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Start Rebase</button>
+                                <button onclick="doRebase('continue')" class="btn" style="background:#48bb78;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Continue</button>
+                                <button onclick="doRebase('abort')" class="btn" style="background:#f56565;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Abort</button>
+                            </div>
+                        </div>
+
+                        <!-- Cherry-pick -->
+                        <div id="gitAction_cherrypick" class="git-action" style="display:none;">
+                            <h4>Cherry-Pick Commit (Bump from PR)</h4>
+                            <div class="form-group">
+                                <input type="text" id="cherry_commit" class="form-control" placeholder="Commit hash (e.g., abc1234) or branch name">
+                            </div>
+                            <p style="font-size:0.85rem;color:#718096;">Tip: To get commits from a PR, use: git log origin/pr-branch --oneline</p>
+                            <button onclick="doCherryPick()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Cherry-Pick</button>
+                        </div>
+
+                        <!-- Commit -->
+                        <div id="gitAction_commit" class="git-action" style="display:none;">
+                            <h4>Stage & Commit</h4>
+                            <div class="form-group">
+                                <textarea id="commit_msg" class="form-control" rows="2" placeholder="Commit message..."></textarea>
+                            </div>
+                            <button onclick="doCommit()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Commit All Changes</button>
+                        </div>
+
+                        <!-- Push -->
+                        <div id="gitAction_push" class="git-action" style="display:none;">
+                            <h4>Push to Remote</h4>
+                            <label><input type="checkbox" id="force_push"> Force push (with lease)</label>
+                            <br><br>
+                            <button onclick="doPush()" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">Push to origin</button>
+                        </div>
+
+                        <!-- Conflict Resolution -->
+                        <div id="gitAction_conflicts" class="git-action" style="display:none;">
+                            <h4><i class="fas fa-magic"></i> AI Conflict Resolution</h4>
+                            <div id="conflictFilesList"></div>
+                            <div class="form-group" style="margin-top:1rem;">
+                                <label>Resolution Strategy:</label>
+                                <select id="resolve_strategy" class="form-control">
+                                    <option value="ai">AI (merge both sides intelligently)</option>
+                                    <option value="ours">Keep Ours (current branch)</option>
+                                    <option value="theirs">Keep Theirs (incoming changes)</option>
+                                </select>
+                            </div>
+                            <button onclick="resolveAllConflicts()" class="btn" style="background:#805ad5;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                                <i class="fas fa-magic"></i> Resolve All Conflicts
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Git Output -->
+                    <div id="gitOutput" style="display:none;margin-top:1rem;">
+                        <h4>Output</h4>
+                        <pre class="code-block" id="gitOutputContent" style="max-height:300px;overflow-y:auto;"></pre>
+                    </div>
+
+                    <!-- Recent Commits -->
+                    <div style="margin-top:1.5rem;">
+                        <h4>Recent Commits</h4>
+                        <pre id="gitCommits" style="background:#f7fafc;padding:1rem;border-radius:0.5rem;font-size:0.85rem;font-family:monospace;max-height:200px;overflow-y:auto;"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Explain Code Tab -->
+        <div id="explain-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3><i class="fas fa-lightbulb"></i> Explain Code</h3>
+                <form id="explainForm">
+                    <div class="form-group">
+                        <label>Load code from a file or paste directly</label>
+                        <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                            <input type="text" id="explain_file_path" class="form-control" style="flex:1;"
+                                   placeholder="/path/to/file.go or browse below...">
+                            <button type="button" onclick="loadFileForExplain()" class="btn" style="background:#4299e1;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                                <i class="fas fa-file-import"></i> Load File
+                            </button>
+                        </div>
+                        <div id="explain_file_browser" style="display:none;margin-bottom:0.75rem;max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;"></div>
+                        <button type="button" onclick="toggleExplainBrowser()" class="btn" style="background:#edf2f7;color:#4a5568;border:1px solid #e2e8f0;padding:0.3rem 0.75rem;border-radius:0.375rem;cursor:pointer;font-size:0.8rem;margin-bottom:0.5rem;">
+                            <i class="fas fa-folder-open"></i> Browse Local Files
+                        </button>
+                        <textarea id="explain_code" class="form-control code-input" rows="12"
+                                  placeholder="Paste your code here or load from a file above..." required></textarea>
+                        <span id="explain_file_label" style="display:none;font-size:0.8rem;color:#4299e1;margin-top:0.25rem;"></span>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-search"></i> Explain
+                    </button>
+                </form>
+            </div>
+            <div id="explainResults" class="review-results" style="display: none;">
+                <h2><i class="fas fa-book-open"></i> Explanation</h2>
+                <div id="explainContent" style="margin-top:1rem;"></div>
+            </div>
+        </div>
+
+        <!-- Refactor Code Tab -->
+        <div id="refactor-tab" class="tab-content" style="display: none;">
+            <div class="review-form">
+                <h3><i class="fas fa-wrench"></i> Refactor Code</h3>
+                <form id="refactorForm">
+                    <div class="form-group">
+                        <label>Load code from a file or paste directly</label>
+                        <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                            <input type="text" id="refactor_file_path" class="form-control" style="flex:1;"
+                                   placeholder="/path/to/file.go or browse below...">
+                            <button type="button" onclick="loadFileForRefactor()" class="btn" style="background:#4299e1;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                                <i class="fas fa-file-import"></i> Load File
+                            </button>
+                        </div>
+                        <div id="refactor_file_browser" style="display:none;margin-bottom:0.75rem;max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;"></div>
+                        <button type="button" onclick="toggleRefactorBrowser()" class="btn" style="background:#edf2f7;color:#4a5568;border:1px solid #e2e8f0;padding:0.3rem 0.75rem;border-radius:0.375rem;cursor:pointer;font-size:0.8rem;margin-bottom:0.5rem;">
+                            <i class="fas fa-folder-open"></i> Browse Local Files
+                        </button>
+                        <textarea id="refactor_code" class="form-control code-input" rows="10"
+                                  placeholder="Paste your code here or load from a file above..." required></textarea>
+                        <span id="refactor_file_label" style="display:none;font-size:0.8rem;color:#4299e1;margin-top:0.25rem;"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="refactor_instructions">Refactoring instructions</label>
+                        <input type="text" id="refactor_instructions" class="form-control"
+                               placeholder="e.g., improve error handling, make it concurrent, add unit tests">
+                    </div>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-sync-alt"></i> Refactor
+                        </button>
+                        <button type="button" id="saveRefactoredBtn" onclick="saveRefactoredCode()" class="btn" style="display:none;background:#48bb78;color:white;border:none;padding:0.5rem 1.5rem;border-radius:0.375rem;cursor:pointer;font-size:1rem;">
+                            <i class="fas fa-save"></i> Save Back to File
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div id="refactorResults" class="review-results" style="display: none;">
+                <h2><i class="fas fa-check-double"></i> Refactored Code</h2>
+                <div id="refactorContent" style="margin-top:1rem;"></div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p id="loadingText">Generating code...</p>
+        </div>
+    </div>
+
+    <!-- Persistent Chat Panel (always visible below all tabs) -->
+    <div id="persistentChat" style="margin-top:1.5rem;border:1px solid var(--border-color);border-radius:0.5rem;background:white;">
+        <div onclick="toggleChatPanel()" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;background:#2d3748;color:white;border-radius:0.5rem 0.5rem 0 0;cursor:pointer;">
+            <span><i class="fas fa-comments"></i> <strong>AI Chat</strong> — Ask follow-up questions, get help with any tab</span>
+            <span id="chatToggleIcon"><i class="fas fa-chevron-up"></i></span>
+        </div>
+        <div id="chatPanelBody">
+            <div id="chatMessages" style="height:250px;overflow-y:auto;padding:1rem;border-bottom:1px solid #edf2f7;">
+                <div class="chat-msg system" style="padding:0.5rem;background:#f7fafc;border-radius:0.375rem;margin-bottom:0.5rem;">
+                    <p style="margin:0;font-size:0.85rem;color:#4a5568;"><strong>Code Assistant</strong> — Ask anything: explain code, debug errors, suggest improvements, or get help with the tool above.</p>
+                </div>
+            </div>
+            <form id="chatForm" style="display:flex;gap:0.5rem;padding:0.75rem 1rem;">
+                <input type="text" id="chatInput" class="form-control" style="flex:1;"
+                       placeholder="Ask about code, get help, follow up on results..." required>
+                <button type="submit" class="btn btn-primary" style="border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var chatHistory = [];
+var lastGeneratedCode = '';
+var currentViewerPath = '';
+
+$(document).ready(function() {
+    loadCollections();
+    browsePath();
+
+    $('.tab-link').on('click', function(e) {
+        e.preventDefault();
+        const tab = $(this).data('tab');
+        $('.tab-link').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-content').hide();
+        $(`#${tab}-tab`).show();
+    });
+
+    // Write Code (preview only)
+    $('#writeForm').on('submit', function(e) {
+        e.preventDefault();
+        var data = {
+            task: $('#write_task').val(),
+            language: $('#write_lang').val(),
+            collection: $('#write_collection').val(),
+            file_path: $('#write_file').val(),
+            context: $('#write_context').val()
+        };
+        showLoading('Generating code from your codebase patterns...');
+        $('#writeResults').hide();
+        $('#writeSavedBadge').hide();
+        $.ajax({
+            url: '/api/code-assist', method: 'POST',
+            contentType: 'application/json', data: JSON.stringify(data),
+            success: function(resp) {
+                if (resp.status === 'success') {
+                    lastGeneratedCode = resp.code;
+                    $('#writeContent').html(formatCode(resp.code));
+                    if (resp.kb_used) $('#writeKbBadge').show(); else $('#writeKbBadge').hide();
+                    $('#writeResults').show();
+                } else {
+                    alert(resp.error || 'Generation failed');
+                }
+            },
+            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+            complete: hideLoading
+        });
+    });
+
+    // Explain Code
+    $('#explainForm').on('submit', function(e) {
+        e.preventDefault();
+        showLoading('Analyzing code...');
+        $('#explainResults').hide();
+        $.ajax({
+            url: '/api/code-assist/explain', method: 'POST',
+            contentType: 'application/json', data: JSON.stringify({code: $('#explain_code').val()}),
+            success: function(resp) {
+                if (resp.status === 'success') {
+                    var modelBadge = '<p style="margin-bottom:0.75rem;font-size:0.8rem;color:#718096;"><i class="fas fa-robot"></i> Powered by <strong>' + (resp.model || 'LLM') + '</strong> (' + (resp.mode || 'unknown') + ')</p>';
+                    var html = '<div style="padding:1.5rem;background:white;border-radius:0.5rem;border-left:4px solid #4299e1;">';
+                    html += modelBadge;
+                    html += formatCode(resp.explanation);
+                    if (resp.kb_used) html += '<p style="margin-top:1rem;color:#805ad5;font-size:0.85rem;"><i class="fas fa-book"></i> Enhanced with Knowledge Base context</p>';
+                    html += '</div>';
+                    $('#explainContent').html(html);
+                    $('#explainResults').show();
+                } else { alert(resp.error); }
+            },
+            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+            complete: hideLoading
+        });
+    });
+
+    // Refactor Code
+    $('#refactorForm').on('submit', function(e) {
+        e.preventDefault();
+        showLoading('Refactoring code using team patterns...');
+        $('#refactorResults').hide();
+        $('#saveRefactoredBtn').hide();
+        $.ajax({
+            url: '/api/code-assist/refactor', method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({code: $('#refactor_code').val(), instructions: $('#refactor_instructions').val()}),
+            success: function(resp) {
+                if (resp.status === 'success') {
+                    lastRefactoredCode = resp.refactored;
+                    var modelBadge = '<p style="margin-bottom:0.75rem;font-size:0.8rem;color:#718096;"><i class="fas fa-robot"></i> Powered by <strong>' + (resp.model || 'LLM') + '</strong> (' + (resp.mode || 'unknown') + ')</p>';
+                    var html = '<div style="padding:1.5rem;background:white;border-radius:0.5rem;border-left:4px solid #48bb78;">';
+                    html += modelBadge;
+                    html += formatCode(resp.refactored);
+                    if (resp.kb_used) html += '<p style="margin-top:1rem;color:#805ad5;font-size:0.85rem;"><i class="fas fa-book"></i> Enhanced with Knowledge Base context</p>';
+                    html += '</div>';
+                    $('#refactorContent').html(html);
+                    $('#refactorResults').show();
+                    if (refactorSourcePath) $('#saveRefactoredBtn').show();
+                } else { alert(resp.error); }
+            },
+            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+            complete: hideLoading
+        });
+    });
+
+    // Persistent Chat (visible on all tabs)
+    $('#chatForm').on('submit', function(e) {
+        e.preventDefault();
+        var msg = $('#chatInput').val().trim();
+        if (!msg) return;
+        $('#chatInput').val('');
+        // Ensure chat panel is visible
+        if (!$('#chatPanelBody').is(':visible')) toggleChatPanel();
+        appendChat('user', msg);
+        chatHistory.push({role: 'user', content: msg});
+
+        var thinking = $('<div class="chat-msg assistant" style="padding:0.5rem;margin:0.25rem 0;"><p style="margin:0;"><i class="fas fa-spinner fa-spin"></i> Thinking...</p></div>');
+        $('#chatMessages').append(thinking);
+        scrollChat();
+
+        // Gather context from current tab
+        var context = '';
+        var filePath = '';
+        var activeTab = $('.tab-link.active').data('tab');
+        if (activeTab === 'explain' && $('#explain_code').val()) {
+            context = 'Code being explained:\n' + $('#explain_code').val().substring(0, 500);
+        } else if (activeTab === 'refactor' && $('#refactor_code').val()) {
+            context = 'Code being refactored:\n' + $('#refactor_code').val().substring(0, 500);
+        } else if (activeTab === 'write' && $('#write_task').val()) {
+            context = 'Current task: ' + $('#write_task').val();
+        }
+        // Detect file paths in message
+        var pathMatch = msg.match(/(\/[\w\-\.\/]+\.\w+)/);
+        if (pathMatch) filePath = pathMatch[1];
+
+        $.ajax({
+            url: '/api/ai/quick-chat', method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                message: msg,
+                context: context,
+                file_path: filePath
+            }),
+            success: function(resp) {
+                thinking.remove();
+                if (resp.status === 'success') {
+                    var answer = resp.response;
+                    appendChat('assistant', answer);
+                    chatHistory.push({role: 'assistant', content: answer});
+                } else {
+                    appendChat('assistant', 'Error: ' + (resp.error || 'No answer'));
+                }
+            },
+            error: function(xhr) {
+                thinking.remove();
+                appendChat('assistant', 'Error: ' + (xhr.responseJSON?.error || 'Request failed'));
+            }
+        });
+    });
+});
+
+function appendChat(role, content) {
+    var cls = role === 'user' ? 'user' : 'assistant';
+    var label = role === 'user' ? 'You' : 'AI';
+    var bg = role === 'user' ? '#ebf8ff' : '#f0fff4';
+    var html = '<div style="padding:0.5rem 0.75rem;margin:0.25rem 0;background:' + bg + ';border-radius:0.375rem;font-size:0.9rem;">';
+    html += '<strong style="font-size:0.75rem;color:#4a5568;">' + label + '</strong><br>';
+    html += '<div>' + formatCode(content) + '</div></div>';
+    $('#chatMessages').append(html);
+    scrollChat();
+}
+
+function scrollChat() {
+    var el = document.getElementById('chatMessages');
+    el.scrollTop = el.scrollHeight;
+}
+
+function generateAndSave() {
+    var filePath = $('#write_file').val();
+    if (!filePath) {
+        alert('Please enter a target file path (full path) to save the generated code.');
+        return;
+    }
+    var data = {
+        task: $('#write_task').val(),
+        language: $('#write_lang').val(),
+        collection: $('#write_collection').val(),
+        file_path: filePath,
+        context: $('#write_context').val(),
+        mode: $('#write_mode').val()
+    };
+    showLoading('Generating code and saving to ' + filePath + '...');
+    $('#writeResults').hide();
+    $.ajax({
+        url: '/api/code-assist/generate-and-save', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                lastGeneratedCode = resp.preview;
+                $('#writeContent').html(formatCode('```\n' + resp.preview + (resp.bytes_written > 500 ? '\n... (truncated)' : '') + '\n```'));
+                $('#writeKbBadge').toggle(resp.kb_used);
+                $('#writeSavedBadge').show();
+                $('#writeSaveInfo').html('<i class="fas fa-check-circle"></i> Saved to <strong>' + resp.path + '</strong> (' + resp.lines_written + ' lines, ' + resp.bytes_written + ' bytes) | Model: ' + resp.model).show();
+                $('#writeResults').show();
+            } else {
+                alert(resp.error || 'Generation failed');
+            }
+        },
+        error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
+        complete: hideLoading
+    });
+}
+
+function saveGeneratedCode() {
+    var filePath = $('#write_file').val();
+    if (!filePath) {
+        filePath = prompt('Enter full file path to save:', '/Users/rgangwar/office-work/');
+        if (!filePath) return;
+    }
+    // Extract raw code from lastGeneratedCode
+    var code = lastGeneratedCode;
+    if (code.startsWith('```')) {
+        var lines = code.split('\n');
+        lines = lines.slice(1);
+        if (lines[lines.length-1].trim() === '```') lines.pop();
+        code = lines.join('\n');
+    }
+    $.ajax({
+        url: '/api/code-assist/write-file', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: filePath, content: code}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                $('#writeSavedBadge').show();
+                $('#writeSaveInfo').html('<i class="fas fa-check-circle"></i> Saved to <strong>' + resp.path + '</strong> (' + resp.bytes_written + ' bytes)').show();
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); }
+    });
+}
+
+function browsePath(path) {
+    var targetPath = (path || $('#browse_path').val()).trim();
+    if (!targetPath) { alert('Enter a path to browse'); return; }
+    $('#fileList').html('<p style="padding:1rem;color:#718096;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>');
+    $.ajax({
+        url: '/api/code-assist/browse', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: targetPath}),
+        success: function(resp) {
+            if (resp.type === 'directory') {
+                $('#browse_path').val(resp.path);
+                renderFileList(resp.items, resp.path);
+                $('#fileViewer').hide();
+            } else if (resp.type === 'file') {
+                showFileViewer(resp.path, resp.content);
+            }
+        },
+        error: function(xhr) {
+            $('#fileList').html('<p style="padding:1rem;color:red;"><i class="fas fa-exclamation-triangle"></i> ' + (xhr.responseJSON?.error || 'Path not found') + '</p>');
+        }
+    });
+}
+
+function loadFullTree() {
+    var targetPath = $('#browse_path').val();
+    $('#fileList').html('<p style="padding:1rem;color:#718096;"><i class="fas fa-spinner fa-spin"></i> Loading repo tree...</p>');
+    $.ajax({
+        url: '/api/code-assist/tree', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: targetPath, depth: 4}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                var html = '<div style="font-family:monospace;font-size:0.85rem;padding:0.5rem;">';
+                html += renderTree(resp.tree, 0);
+                html += '</div>';
+                $('#fileList').html(html);
+                $('#fileViewer').hide();
+            } else {
+                $('#fileList').html('<p style="padding:1rem;color:red;">' + resp.error + '</p>');
+            }
+        },
+        error: function(xhr) { $('#fileList').html('<p style="padding:1rem;color:red;">Failed to load tree</p>'); }
+    });
+}
+
+function renderTree(nodes, depth) {
+    var html = '';
+    var indent = depth * 16;
+    nodes.forEach(function(node) {
+        if (node.is_dir) {
+            html += '<div style="padding:2px 4px;padding-left:' + indent + 'px;cursor:pointer;" onclick="toggleTreeDir(this)">';
+            html += '<i class="fas fa-folder" style="color:#ecc94b;margin-right:4px;width:14px;"></i>';
+            html += '<span style="font-weight:600;color:#2d3748;">' + node.name + '/</span></div>';
+            if (node.children && node.children.length) {
+                html += '<div class="tree-children">' + renderTree(node.children, depth + 1) + '</div>';
+            }
+        } else {
+            var ext = node.name.split('.').pop();
+            var color = {py:'#3572A5',go:'#00ADD8',js:'#f1e05a',ts:'#2b7489',yaml:'#cb171e',yml:'#cb171e',md:'#083fa1'}[ext] || '#4299e1';
+            html += '<div style="padding:2px 4px;padding-left:' + indent + 'px;cursor:pointer;" onclick="browsePath(\'' + node.path.replace(/'/g, "\\'") + '\')">';
+            html += '<i class="fas fa-file-code" style="color:' + color + ';margin-right:4px;width:14px;"></i>';
+            html += '<span style="color:#4a5568;">' + node.name + '</span>';
+            if (node.size) html += '<span style="color:#a0aec0;font-size:0.7rem;margin-left:8px;">' + formatSize(node.size) + '</span>';
+            html += '</div>';
+        }
+    });
+    return html;
+}
+
+function toggleTreeDir(el) {
+    var children = $(el).next('.tree-children');
+    children.toggle();
+    var icon = $(el).find('i.fa-folder, i.fa-folder-open');
+    icon.toggleClass('fa-folder fa-folder-open');
+}
+
+function renderFileList(items, parentPath) {
+    var html = '';
+    var parent = parentPath.split('/').slice(0, -1).join('/');
+    if (parent) {
+        html += '<div class="file-item" onclick="browsePath(\'' + parent + '\')" style="cursor:pointer;padding:0.5rem 1rem;border-bottom:1px solid #edf2f7;"><i class="fas fa-level-up-alt" style="color:#718096;margin-right:0.5rem;"></i> ..</div>';
+    }
+    items.forEach(function(item) {
+        var icon = item.is_dir ? '<i class="fas fa-folder" style="color:#ecc94b;margin-right:0.5rem;"></i>' : '<i class="fas fa-file-code" style="color:#4299e1;margin-right:0.5rem;"></i>';
+        var size = item.size ? '<span style="color:#a0aec0;font-size:0.75rem;margin-left:auto;">' + formatSize(item.size) + '</span>' : '';
+        html += '<div class="file-item" onclick="browsePath(\'' + item.path.replace(/'/g, "\\'") + '\')" style="cursor:pointer;padding:0.5rem 1rem;border-bottom:1px solid #edf2f7;display:flex;align-items:center;">' + icon + '<span>' + item.name + '</span>' + size + '</div>';
+    });
+    if (!items.length) html = '<p style="padding:1rem;color:#718096;">Empty directory</p>';
+    $('#fileList').html(html);
+    $('#fileViewer').hide();
+}
+
+function showFileViewer(path, content) {
+    currentViewerPath = path;
+    $('#fileViewerPath').text(path);
+    $('#fileContent').text(content);
+    $('#fileViewer').show();
+    $('html, body').animate({scrollTop: $('#fileViewer').offset().top - 80}, 300);
+}
+
+function editFileInline() {
+    var content = $('#fileContent').text();
+    $('#fileContent').replaceWith('<textarea id="fileEditor" class="code-input" style="width:100%;min-height:400px;margin:0;border-radius:0 0 0.5rem 0.5rem;">' + content.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>');
+    var saveBtn = '<button onclick="saveEditedFile()" class="btn" style="background:#48bb78;color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;cursor:pointer;margin-top:0.5rem;"><i class="fas fa-save"></i> Save Changes</button>';
+    $('#fileViewer').append(saveBtn);
+}
+
+function saveEditedFile() {
+    var content = $('#fileEditor').val();
+    $.ajax({
+        url: '/api/code-assist/write-file', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: currentViewerPath, content: content}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                alert('File saved: ' + resp.path);
+                browsePath(currentViewerPath);
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); }
+    });
+}
+
+function useAsContext() {
+    var content = $('#fileContent').text() || $('#fileEditor').val();
+    $('#write_context').val('Existing file (' + currentViewerPath + '):\n' + content.substring(0, 500));
+    $('.tab-link').removeClass('active');
+    $('.tab-link[data-tab="write"]').addClass('active');
+    $('.tab-content').hide();
+    $('#write-tab').show();
+}
+
+// --- File loading for Explain & Refactor tabs ---
+var explainBrowserPath = '/Users/rgangwar/office-work';
+var refactorBrowserPath = '/Users/rgangwar/office-work';
+var lastRefactoredCode = '';
+var refactorSourcePath = '';
+
+function loadFileForExplain() {
+    var path = $('#explain_file_path').val().trim();
+    if (!path) return;
+    $.ajax({
+        url: '/api/code-assist/read-file', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: path}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                $('#explain_code').val(resp.content);
+                $('#explain_file_label').text('Loaded: ' + path + ' (' + resp.lines + ' lines)').show();
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert('File not found: ' + (xhr.responseJSON?.error || path)); }
+    });
+}
+
+function loadFileForRefactor() {
+    var path = $('#refactor_file_path').val().trim();
+    if (!path) return;
+    refactorSourcePath = path;
+    $.ajax({
+        url: '/api/code-assist/read-file', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: path}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                $('#refactor_code').val(resp.content);
+                $('#refactor_file_label').text('Loaded: ' + path + ' (' + resp.lines + ' lines)').show();
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert('File not found: ' + (xhr.responseJSON?.error || path)); }
+    });
+}
+
+function toggleExplainBrowser() {
+    var el = $('#explain_file_browser');
+    if (el.is(':visible')) { el.hide(); return; }
+    el.show();
+    browseForTab('explain', explainBrowserPath);
+}
+
+function toggleRefactorBrowser() {
+    var el = $('#refactor_file_browser');
+    if (el.is(':visible')) { el.hide(); return; }
+    el.show();
+    browseForTab('refactor', refactorBrowserPath);
+}
+
+function browseForTab(tab, path) {
+    $.ajax({
+        url: '/api/code-assist/browse', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: path}),
+        success: function(resp) {
+            if (resp.type === 'directory') {
+                if (tab === 'explain') explainBrowserPath = resp.path;
+                else refactorBrowserPath = resp.path;
+                renderTabBrowser(tab, resp.items, resp.path);
+            } else if (resp.type === 'file') {
+                $('#' + tab + '_file_path').val(resp.path);
+                $('#' + tab + '_code').val(resp.content);
+                $('#' + tab + '_file_label').text('Loaded: ' + resp.path + ' (' + resp.lines + ' lines)').show();
+                $('#' + tab + '_file_browser').hide();
+                if (tab === 'refactor') refactorSourcePath = resp.path;
+            }
+        }
+    });
+}
+
+function renderTabBrowser(tab, items, parentPath) {
+    var html = '';
+    var parent = parentPath.split('/').slice(0, -1).join('/');
+    if (parent) {
+        html += '<div style="cursor:pointer;padding:4px 8px;border-bottom:1px solid #edf2f7;" onclick="browseForTab(\'' + tab + '\',\'' + parent + '\')"><i class="fas fa-level-up-alt" style="color:#718096;margin-right:4px;"></i> ..</div>';
+    }
+    items.forEach(function(item) {
+        var icon = item.is_dir ? '<i class="fas fa-folder" style="color:#ecc94b;margin-right:4px;"></i>' : '<i class="fas fa-file-code" style="color:#4299e1;margin-right:4px;"></i>';
+        html += '<div style="cursor:pointer;padding:4px 8px;border-bottom:1px solid #edf2f7;" onclick="browseForTab(\'' + tab + '\',\'' + item.path.replace(/'/g, "\\'") + '\')">' + icon + item.name + '</div>';
+    });
+    if (!items.length) html = '<p style="padding:8px;color:#718096;">Empty</p>';
+    $('#' + tab + '_file_browser').html(html);
+}
+
+function saveRefactoredCode() {
+    if (!lastRefactoredCode || !refactorSourcePath) {
+        alert('No refactored code or source file path available');
+        return;
+    }
+    var cleanCode = lastRefactoredCode.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+    $.ajax({
+        url: '/api/code-assist/write-file', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({path: refactorSourcePath, content: cleanCode}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                alert('Refactored code saved to: ' + resp.path);
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); }
+    });
+}
+
+function pickFile() {
+    $('.tab-link').removeClass('active');
+    $('.tab-link[data-tab="browse"]').addClass('active');
+    $('.tab-content').hide();
+    $('#browse-tab').show();
+    browsePath();
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+function toggleChatPanel() {
+    var body = $('#chatPanelBody');
+    body.toggle();
+    var icon = body.is(':visible') ? 'fa-chevron-down' : 'fa-chevron-up';
+    $('#chatToggleIcon').html('<i class="fas ' + icon + '"></i>');
+}
+
+// ============ Git Operations ============
+function gitStatus() {
+    var repo = $('#git_repo').val().trim();
+    if (!repo) { alert('Please enter a repository path'); return; }
+    $('#git_repo').val(repo);
+    $.ajax({
+        url: '/api/git/status', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({repo_path: repo}),
+        success: function(resp) {
+            if (resp.status === 'success') {
+                $('#gitBranch').text(resp.branch);
+                var lines = resp.git_status.trim().split('\n').filter(l => l);
+                var statusText = lines.length <= 1 ? 'Clean' : (lines.length - 1) + ' changed files';
+                $('#gitStatusText').text(statusText);
+                $('#gitCommits').text(resp.recent_commits);
+                $('#gitInfo').show();
+            } else { alert(resp.error); }
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || 'Failed to load repo'); }
+    });
+}
+
+function showGitAction(action) {
+    $('.git-action').hide();
+    $('#gitAction_' + action).show();
+    $('#gitActionPanel').show();
+
+    if (action === 'conflicts') loadConflicts();
+}
+
+function createBranch() {
+    var data = {repo_path: $('#git_repo').val(), branch_name: $('#new_branch_name').val(), base: $('#new_branch_base').val()};
+    $.ajax({
+        url: '/api/git/create-branch', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) { showGitOutput(resp); gitStatus(); },
+        error: function(xhr) { showGitOutput(xhr.responseJSON); }
+    });
+}
+
+function doRebase(action) {
+    var data = {repo_path: $('#git_repo').val(), onto: $('#rebase_onto').val(), action: action};
+    showLoading('Rebasing...');
+    $.ajax({
+        url: '/api/git/rebase', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) {
+            showGitOutput(resp);
+            if (resp.status === 'conflict') {
+                renderConflicts(resp.conflicted_files);
+                showGitAction('conflicts');
+            }
+            gitStatus();
+        },
+        error: function(xhr) { showGitOutput(xhr.responseJSON); },
+        complete: hideLoading
+    });
+}
+
+function doCherryPick() {
+    var data = {repo_path: $('#git_repo').val(), commit: $('#cherry_commit').val()};
+    showLoading('Cherry-picking...');
+    $.ajax({
+        url: '/api/git/cherry-pick', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) {
+            showGitOutput(resp);
+            if (resp.status === 'conflict') {
+                renderConflicts(resp.conflicted_files);
+                showGitAction('conflicts');
+            }
+            gitStatus();
+        },
+        error: function(xhr) { showGitOutput(xhr.responseJSON); },
+        complete: hideLoading
+    });
+}
+
+function doCommit() {
+    var data = {repo_path: $('#git_repo').val(), message: $('#commit_msg').val()};
+    $.ajax({
+        url: '/api/git/commit', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) { showGitOutput(resp); gitStatus(); },
+        error: function(xhr) { showGitOutput(xhr.responseJSON); }
+    });
+}
+
+function doPush() {
+    var data = {repo_path: $('#git_repo').val(), force: $('#force_push').is(':checked')};
+    showLoading('Pushing...');
+    $.ajax({
+        url: '/api/git/push', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify(data),
+        success: function(resp) { showGitOutput(resp); },
+        error: function(xhr) { showGitOutput(xhr.responseJSON); },
+        complete: hideLoading
+    });
+}
+
+function loadConflicts() {
+    var repo = $('#git_repo').val();
+    $.ajax({
+        url: '/api/git/status', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({repo_path: repo}),
+        success: function(resp) {
+            var conflicted = resp.git_status.split('\n').filter(l => l.startsWith('UU') || l.startsWith('AA')).map(l => l.substring(3).trim());
+            renderConflicts(conflicted);
+        }
+    });
+}
+
+function renderConflicts(files) {
+    if (!files || !files.length || (files.length === 1 && !files[0])) {
+        $('#conflictFilesList').html('<p style="color:#48bb78;">No conflicts found!</p>');
+        return;
+    }
+    var html = '<p style="color:#e53e3e;margin-bottom:0.5rem;"><strong>' + files.length + ' conflicted files:</strong></p><ul style="list-style:none;padding:0;">';
+    files.forEach(function(f) {
+        html += '<li style="padding:0.25rem 0;"><code style="background:#fed7d7;padding:2px 6px;border-radius:3px;">' + f + '</code></li>';
+    });
+    html += '</ul>';
+    $('#conflictFilesList').html(html);
+}
+
+function resolveAllConflicts() {
+    var repo = $('#git_repo').val();
+    var strategy = $('#resolve_strategy').val();
+
+    $.ajax({
+        url: '/api/git/status', method: 'POST',
+        contentType: 'application/json', data: JSON.stringify({repo_path: repo}),
+        success: function(resp) {
+            var conflicted = resp.git_status.split('\n').filter(l => l.startsWith('UU') || l.startsWith('AA')).map(l => l.substring(3).trim()).filter(f => f);
+            if (!conflicted.length) { alert('No conflicts to resolve!'); return; }
+
+            showLoading('AI resolving ' + conflicted.length + ' conflicts...');
+            var resolved = 0;
+            conflicted.forEach(function(file) {
+                $.ajax({
+                    url: '/api/git/resolve-conflicts', method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({repo_path: repo, file_path: file, strategy: strategy}),
+                    async: false,
+                    success: function(r) {
+                        resolved++;
+                        showGitOutput({status: 'success', message: 'Resolved: ' + file + ' (' + resolved + '/' + conflicted.length + ')'});
+                    },
+                    error: function(xhr) { showGitOutput(xhr.responseJSON); }
+                });
+            });
+            hideLoading();
+            loadConflicts();
+            gitStatus();
+        }
+    });
+}
+
+function showGitOutput(resp) {
+    var msg = resp.message || resp.error || 'Done';
+    var output = resp.output || '';
+    $('#gitOutputContent').text(msg + '\n' + output);
+    $('#gitOutput').show();
+}
+
+function loadCollections() {
+    $.get('/api/rag/collections', function(data) {
+        var sel = $('#write_collection');
+        sel.html('<option value="">All collections</option>');
+        if (data.collections) {
+            data.collections.forEach(function(c) {
+                sel.append($('<option>').val(c.name).text(c.name + ' (' + c.document_count + ' chunks)'));
+            });
+        }
+    });
+}
+
+function showLoading(text) {
+    $('#loadingText').text(text);
+    $('#loading').show();
+}
+function hideLoading() { $('#loading').hide(); }
+
+function copyCode(elementId) {
+    var el = document.getElementById(elementId);
+    var code = el.querySelector('code') || el;
+    navigator.clipboard.writeText(code.innerText).then(function() {
+        alert('Copied to clipboard!');
+    });
+}
+
+function formatCode(text) {
+    if (!text) return '';
+    var html = text;
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        return '<pre class="code-block"><code class="language-' + (lang||'text') + '">' +
+               code.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+    });
+    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
+}
+</script>
+
+<style>
+.tab-link { padding: 0.75rem 1.5rem; text-decoration: none; color: var(--text-secondary); border-bottom: 3px solid transparent; transition: all 0.3s; cursor: pointer; }
+.tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+.code-input { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.875rem; background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; border: none; width: 100%; }
+.code-block { background: #1a202c; color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin: 0.75rem 0; line-height: 1.6; }
+.code-block code { color: #e2e8f0; }
+.inline-code { background: #edf2f7; padding: 2px 6px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+.chat-msg { padding: 1rem; margin-bottom: 0.75rem; border-radius: 0.5rem; }
+.chat-msg.user { background: #ebf8ff; border-left: 4px solid #4299e1; }
+.chat-msg.assistant { background: #f0fff4; border-left: 4px solid #48bb78; }
+.chat-msg.system { background: #faf5ff; border-left: 4px solid #805ad5; }
+.badge { font-size: 0.75rem; }
+.file-item:hover { background: #f7fafc; }
+.file-item { transition: background 0.2s; }
+.git-btn { background: #4a5568; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; transition: background 0.2s; }
+.git-btn:hover { background: #2d3748; }
+</style>
+{% endblock %}
