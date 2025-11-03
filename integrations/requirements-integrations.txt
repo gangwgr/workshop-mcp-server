@@ -1,0 +1,26 @@
+# AI Integration Dependencies for Workshop MCP Server
+# Install with: pip install -r requirements-integrations.txt
+
+# Core dependencies
+requests>=2.31.0
+
+# Google Gemini
+google-generativeai>=0.3.0
+google-ai-generativelanguage>=0.4.0
+
+# OpenAI GPT-4
+openai>=1.0.0
+
+# LangChain (Universal - supports all LLMs)
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.1
+
+# LangChain LLM Integrations (install as needed)
+langchain-openai>=0.0.5          # For GPT-4
+langchain-google-genai>=0.0.5    # For Gemini
+langchain-anthropic>=0.1.0       # For Claude
+
+# Additional utilities
+pydantic>=2.0.0                  # For data validation
+python-dotenv>=1.0.0             # For environment variables

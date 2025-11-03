@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}PR Review - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fab fa-github"></i> Pull Request Review</h1>
+        <p>Automated GitHub PR review with line-by-line analysis</p>
+    </div>
+
+    <div class="review-container">
+        <div class="review-form">
+            <form id="prReviewForm">
+                <div class="form-group">
+                    <label for="pr_url">GitHub PR URL</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="url" id="pr_url" name="pr_url" class="form-control"
+                               placeholder="https://github.com/owner/repo/pull/123" required style="flex: 1;">
+                        <button type="button" id="fetchPRBtn" class="btn btn-primary" style="white-space: nowrap;">
+                            <i class="fas fa-download"></i> Fetch PR Files
+                        </button>
+                    </div>
+                    <small style="color: #718096; margin-top: 0.5rem; display: block;">
+                        Click "Fetch PR Files" to automatically load the changed files from GitHub
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="file_path">File Path (optional)</label>
+                    <input type="text" id="file_path" name="file_path" class="form-control"
+                           placeholder="path/to/file.py">
+                </div>
+
+                <div class="form-group">
+                    <label for="pr_code">Code from PR</label>
+                    <textarea id="pr_code" name="pr_code" class="form-control code-textarea" rows="10"
+                              placeholder="Use 'Fetch PR Files' button above or paste code manually..."></textarea>
+                    <small style="color: #718096; margin-top: 0.5rem; display: block;">
+                        💡 Tip: Click "Fetch PR Files" to auto-load, or paste the changed code manually.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="pr_language">Language</label>
+                    <select id="pr_language" name="pr_language" class="form-control">
+                        <option value="python">Python</option>
+                        <option value="go" selected>Go</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="java">Java</option>
+                    </select>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="post_to_github" name="post_to_github">
+                        Post review comment to GitHub
+                    </label>
+                    <label>
+                        <input type="checkbox" id="post_inline" name="post_inline">
+                        Post inline comments
+                    </label>
+                    <label>
+                        <input type="checkbox" id="approve" name="approve">
+                        Auto-approve if clean
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fab fa-github"></i> Review Pull Request
+                </button>
+            </form>
+        </div>
+
+        <div id="prResults" class="review-results" style="display: none;">
+            <h2><i class="fas fa-clipboard-check"></i> PR Review Results</h2>
+            <div id="prSummary"></div>
+            <div id="prDetails"></div>
+        </div>
+
+        <div id="prLoading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Reviewing pull request...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Fetch PR files button
+    $('#fetchPRBtn').on('click', function() {
+        const prUrl = $('#pr_url').val();
+        if (!prUrl) {
+            alert('Please enter a GitHub PR URL first');
+            return;
+        }
+
+        $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Fetching...');
+
+        $.ajax({
+            url: '/api/fetch-pr-files',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({pr_url: prUrl}),
+            success: function(response) {
+                if (response.status === 'success' && response.files && response.files.length > 0) {
+                    // Take the first file's content
+                    const file = response.files[0];
+                    $('#pr_code').val(file.content);
+                    $('#file_path').val(file.filename);
+
+                    // Try to detect language from extension
+                    const ext = file.filename.split('.').pop().toLowerCase();
+                    const langMap = {
+                        'py': 'python', 'go': 'go', 'js': 'javascript',
+                        'java': 'java', 'ts': 'typescript', 'rb': 'ruby',
+                        'php': 'php', 'rs': 'rust'
+                    };
+                    if (langMap[ext]) {
+                        $('#pr_language').val(langMap[ext]);
+                    }
+
+                    alert(`Loaded ${response.files.length} file(s). Showing: ${file.filename}`);
+                } else {
+                    alert('No files found in PR or error occurred');
+                }
+            },
+            error: function(xhr) {
+                alert('Error fetching PR files: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            },
+            complete: function() {
+                $('#fetchPRBtn').prop('disabled', false).html('<i class="fas fa-download"></i> Fetch PR Files');
+            }
+        });
+    });
+
+    $('#prReviewForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const code = $('#pr_code').val();
+        if (!code.trim()) {
+            alert('Please use the "Fetch PR Files" button or paste code manually before submitting.');
+            return;
+        }
+
+        const data = {
+            pr_url: $('#pr_url').val(),
+            code: code,
+            file_path: $('#file_path').val() || 'unknown',
+            language: $('#pr_language').val(),
+            post_to_github: $('#post_to_github').is(':checked'),
+            post_inline: $('#post_inline').is(':checked'),
+            approve: $('#approve').is(':checked')
+        };
+
+        $('#prLoading').show();
+        $('#prResults').hide();
+
+        $.ajax({
+            url: '/api/review-pr',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                displayPRResults(response, data.post_to_github);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            },
+            complete: function() {
+                $('#prLoading').hide();
+            }
+        });
+    });
+
+    function displayPRResults(result, posted) {
+        const review = result.review || result;
+        const severity = review.issues_by_severity || {critical: 0, error: 0, warning: 0, info: 0};
+
+        let summary = `
+            <div class="summary-card">
+                <h3>Review Summary</h3>
+                <div class="summary-stats">
+                    <div class="stat-item">
+                        <span>Total Issues:</span>
+                        <span class="stat-value">${review.total_issues || 0}</span>
+                    </div>
+                    <div class="stat-item critical">
+                        <span>Critical:</span>
+                        <span class="stat-value">${severity.critical}</span>
+                    </div>
+                    <div class="stat-item error">
+                        <span>Errors:</span>
+                        <span class="stat-value">${severity.error}</span>
+                    </div>
+                    <div class="stat-item warning">
+                        <span>Warnings:</span>
+                        <span class="stat-value">${severity.warning}</span>
+                    </div>
+                    <div class="stat-item info">
+                        <span>Info:</span>
+                        <span class="stat-value">${severity.info}</span>
+                    </div>
+                </div>
+        `;
+
+        if (posted && result.post_result) {
+            summary += `
+                <div style="margin-top: 1rem; padding: 1rem; background: #d1fae5; border-radius: 0.5rem;">
+                    <strong>✅ Posted to GitHub!</strong><br>
+                    Summary posted: ${result.post_result.summary_posted ? 'Yes' : 'No'}<br>
+                    Review action: ${result.post_result.review_action}
+                </div>
+            `;
+        }
+
+        summary += '</div>';
+
+        $('#prSummary').html(summary);
+
+        // Display detailed results
+        let details = '<h3>Detailed Analysis</h3>';
+        if (review.line_reviews && review.line_reviews.length > 0) {
+            review.line_reviews.forEach(function(lineReview) {
+                lineReview.issues.forEach(function(issue) {
+                    const severityIcon = {
+                        'critical': '🔴',
+                        'error': '🟠',
+                        'warning': '🟡',
+                        'info': '🔵'
+                    }[issue.severity] || '⚪';
+
+                    details += `
+                        <div class="issue-card ${issue.severity}">
+                            <div class="issue-header">
+                                <span>${severityIcon} ${issue.severity.toUpperCase()}</span>
+                                <span>${issue.category}</span>
+                                <span class="issue-line">Line ${lineReview.line_number}</span>
+                            </div>
+                            <div class="issue-code"><code>${escapeHtml(lineReview.line_content)}</code></div>
+                            <div class="issue-message"><strong>Issue:</strong> ${issue.message}</div>
+                            <div class="issue-suggestion"><strong>Fix:</strong> ${issue.suggestion}</div>
+                        </div>
+                    `;
+                });
+            });
+        } else {
+            details += '<p class="no-issues">✅ No issues found! PR looks great!</p>';
+        }
+
+        $('#prDetails').html(details);
+        $('#prResults').show();
+    }
+
+    function escapeHtml(text) {
+        return $('<div>').text(text).html();
+    }
+});
+</script>
+{% endblock %}

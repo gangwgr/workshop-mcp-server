@@ -1,0 +1,452 @@
+{% extends "base.html" %}
+
+{% block title %}Cluster Debugger - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-bug"></i> OpenShift Cluster Debugger + Test Automation</h1>
+        <p>AI-powered cluster diagnostics with automated test case generation</p>
+    </div>
+
+    <div class="review-container">
+        <div class="review-form">
+            <h3>Describe Cluster Issue</h3>
+            <form id="debugForm">
+                <div class="form-group">
+                    <label for="issue_description">Issue Description *</label>
+                    <textarea id="issue_description" name="issue_description" class="form-control" rows="3"
+                              placeholder="e.g., API server not responding, pod keeps crashing, nodes showing NotReady..." required></textarea>
+                    <small style="color: #718096; display: block; margin-top: 0.25rem;">
+                        💡 Describe the issue you're experiencing. The AI will analyze and provide diagnostics.
+                    </small>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label for="namespace">Namespace (optional)</label>
+                        <input type="text" id="namespace" name="namespace" class="form-control"
+                               placeholder="e.g., openshift-etcd">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="component">Component (optional)</label>
+                        <input type="text" id="component" name="component" class="form-control"
+                               placeholder="e.g., etcd-master-0, authentication">
+                    </div>
+                </div>
+
+                <!-- Configuration Section -->
+                <div style="margin-top: 1.5rem; padding: 1rem; background: #f7fafc; border-radius: 0.5rem; border-left: 3px solid #4299e1;">
+                    <h4 style="margin-top: 0; color: #2d3748; font-size: 1rem;">
+                        <i class="fas fa-cog"></i> Configuration (Optional)
+                    </h4>
+
+                    <div class="form-group">
+                        <label for="oc_path">OC CLI Path</label>
+                        <input type="text" id="oc_path" name="oc_path" class="form-control"
+                               placeholder="/usr/local/bin/oc (leave empty for system default)">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="kubeconfig_path">Kubeconfig Path</label>
+                        <input type="text" id="kubeconfig_path" name="kubeconfig_path" class="form-control"
+                               placeholder="~/.kube/config (leave empty for default)">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg" style="margin-top: 1rem;">
+                    <i class="fas fa-bug"></i> Debug & Analyze
+                </button>
+            </form>
+        </div>
+
+        <div id="debugResults" class="review-results" style="display: none;">
+            <h2><i class="fas fa-chart-line"></i> Diagnostic Results</h2>
+
+            <!-- Validation Results -->
+            <div id="validationResults"></div>
+
+            <!-- Issue Analysis -->
+            <div id="issueAnalysis" style="margin-top: 1.5rem;"></div>
+
+            <!-- Diagnostic Summary -->
+            <div id="diagnosticSummary" style="margin-top: 1.5rem;"></div>
+
+            <!-- Fix Recommendations -->
+            <div id="fixRecommendations" style="margin-top: 1.5rem;"></div>
+
+            <!-- Suggested Commands -->
+            <div id="suggestedCommands" style="margin-top: 1.5rem;"></div>
+
+            <!-- Chat Window -->
+            <div id="chatWindow" style="margin-top: 2rem;">
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                    <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-comments"></i> Ask Questions About Diagnosis</h3>
+                    <p style="color: #718096; font-size: 0.875rem; margin-bottom: 1rem;">
+                        Ask questions about the diagnostic results, get clarification on issues, or request detailed explanations.
+                    </p>
+
+                    <div id="chatMessages" style="background: #f7fafc; border-radius: 0.5rem; padding: 1rem; min-height: 300px; max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
+                        <div class="chat-message assistant-message" style="margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: start; gap: 0.75rem;">
+                                <div style="background: #4299e1; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                    <i class="fas fa-robot" style="font-size: 0.875rem;"></i>
+                                </div>
+                                <div style="background: white; padding: 0.75rem; border-radius: 0.5rem; flex: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                    <p style="margin: 0; color: #2d3748;">
+                                        Hello! I'm your cluster debugging assistant. I can help you understand the diagnostic results. Ask me questions like:
+                                    </p>
+                                    <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem; font-size: 0.875rem; color: #4a5568;">
+                                        <li>What's causing the main issue?</li>
+                                        <li>How do I fix the API server problem?</li>
+                                        <li>Why is etcd failing?</li>
+                                        <li>What should I check first?</li>
+                                        <li>Explain the log errors</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="chatForm" style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="chatInput" placeholder="Ask a question about the diagnosis..."
+                               style="flex: 1; padding: 0.75rem; border: 1px solid #cbd5e0; border-radius: 0.375rem; font-size: 0.875rem;" required>
+                        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </form>
+
+                    <div id="chatLoading" style="display: none; margin-top: 0.5rem; color: #718096; font-size: 0.875rem;">
+                        <i class="fas fa-spinner fa-spin"></i> Thinking...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p id="loadingText">Analyzing cluster issue...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Store diagnostic context globally for chat
+    window.diagnosticContext = null;
+
+    $('#debugForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const data = {
+            issue_description: $('#issue_description').val(),
+            namespace: $('#namespace').val() || null,
+            component: $('#component').val() || null,
+            oc_path: $('#oc_path').val() || null,
+            kubeconfig_path: $('#kubeconfig_path').val() || null,
+            include_test_case: false
+        };
+
+        $('#loading').show();
+        $('#loadingText').text('Analyzing cluster issue and running diagnostics...');
+        $('#debugResults').hide();
+
+        $.ajax({
+            url: '/api/debug-cluster',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                displayResults(response);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            },
+            complete: function() {
+                $('#loading').hide();
+            }
+        });
+    });
+
+    function displayResults(result) {
+        if (result.status === 'error') {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        // Store diagnostic context for chat
+        window.diagnosticContext = result;
+
+        // Display validation results
+        displayValidationResults(result.validation_results);
+
+        // Display issue analysis
+        displayIssueAnalysis(result.issue_analysis);
+
+        // Display diagnostic summary
+        displayDiagnosticSummary(result.diagnostics);
+
+        // Display fix recommendations
+        displayFixRecommendations(result.fix_recommendations);
+
+        // Display suggested commands
+        displaySuggestedCommands(result.suggested_commands);
+
+        $('#debugResults').show();
+
+        // Scroll to results
+        $('html, body').animate({
+            scrollTop: $('#debugResults').offset().top - 20
+        }, 500);
+    }
+
+    function displayValidationResults(validation) {
+        if (!validation) return;
+
+        const allValid = validation.oc_cli_available && validation.cluster_accessible;
+        const statusColor = allValid ? '#48bb78' : '#f56565';
+        const statusIcon = allValid ? '✅' : '❌';
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid ${statusColor};">
+                <h3 style="margin-top: 0; color: #2d3748;">${statusIcon} Input Validation</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <p style="margin: 0.25rem 0;">
+                            <strong>OC CLI:</strong> ${validation.oc_cli_available ? '✅ Available' : '❌ Not Found'}
+                        </p>
+                        <p style="margin: 0.25rem 0;">
+                            <strong>Cluster Access:</strong> ${validation.cluster_accessible ? '✅ Connected' : '❌ No Access'}
+                        </p>
+                    </div>
+                    <div>
+        `;
+
+        if (validation.namespace_exists !== null) {
+            html += `<p style="margin: 0.25rem 0;"><strong>Namespace:</strong> ${validation.namespace_exists ? '✅ Exists' : '❌ Not Found'}</p>`;
+        }
+
+        if (validation.component_exists !== null) {
+            html += `<p style="margin: 0.25rem 0;"><strong>Component:</strong> ${validation.component_exists ? '✅ Found' : '❌ Not Found'}</p>`;
+            if (validation.component_type) {
+                html += `<p style="margin: 0.25rem 0; color: #718096; font-size: 0.875rem;">Type: ${validation.component_type}</p>`;
+            }
+        }
+
+        html += `
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('#validationResults').html(html);
+    }
+
+    function displayIssueAnalysis(analysis) {
+        if (!analysis) return;
+
+        const severityColors = {
+            critical: '#f56565',
+            high: '#ed8936',
+            medium: '#ecc94b',
+            low: '#48bb78'
+        };
+
+        const severityColor = severityColors[analysis.severity] || '#718096';
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 2px solid ${severityColor};">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-microscope"></i> Issue Analysis</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Issue Type:</strong> ${escapeHtml(analysis.issue_type)}</p>
+                        <p style="margin: 0.25rem 0;"><strong>Severity:</strong> <span style="color: ${severityColor}; font-weight: bold; text-transform: uppercase;">${analysis.severity}</span></p>
+                    </div>
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Affected Components:</strong></p>
+                        <p style="margin: 0; color: #4a5568; font-size: 0.875rem;">
+                            ${analysis.affected_components.length > 0 ? analysis.affected_components.join(', ') : 'Not identified'}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('#issueAnalysis').html(html);
+    }
+
+    function displayDiagnosticSummary(diagnostics) {
+        if (!diagnostics) return;
+
+        const hasCritical = diagnostics.findings && diagnostics.findings.some(f => f.severity === 'critical');
+        const borderColor = hasCritical ? '#f56565' : '#48bb78';
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid ${borderColor};">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-stethoscope"></i> Diagnostic Summary</h3>
+                <pre style="background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; white-space: pre-wrap; font-size: 0.875rem; line-height: 1.6;">${escapeHtml(diagnostics.summary || 'No summary available')}</pre>
+        `;
+
+        if (diagnostics.findings && diagnostics.findings.length > 0) {
+            html += `<h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; color: #2d3748;">Findings:</h4>`;
+
+            diagnostics.findings.forEach(function(finding) {
+                const findingColor = finding.severity === 'critical' ? '#f56565' : '#ed8936';
+                const findingIcon = finding.severity === 'critical' ? '🚨' : '⚠️';
+
+                html += `
+                    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f7fafc; border-left: 3px solid ${findingColor}; border-radius: 0.375rem;">
+                        <p style="margin: 0; color: #2d3748;">
+                            ${findingIcon} <strong>${finding.severity.toUpperCase()}:</strong> ${escapeHtml(finding.finding)}
+                        </p>
+                    </div>
+                `;
+            });
+        }
+
+        if (diagnostics.checks_performed && diagnostics.checks_performed.length > 0) {
+            html += `
+                <p style="margin-top: 1rem; color: #718096; font-size: 0.875rem;">
+                    <strong>Checks Performed:</strong> ${diagnostics.checks_performed.join(', ')}
+                </p>
+            `;
+        }
+
+        html += `</div>`;
+
+        $('#diagnosticSummary').html(html);
+    }
+
+    function displayFixRecommendations(recommendations) {
+        if (!recommendations || recommendations.length === 0) {
+            $('#fixRecommendations').html('');
+            return;
+        }
+
+        let html = `
+            <div style="padding: 1.5rem; background: #fffaf0; border-radius: 0.5rem; border-left: 4px solid #ed8936;">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-wrench"></i> Fix Recommendations</h3>
+                <ol style="margin: 0; padding-left: 1.5rem;">
+        `;
+
+        recommendations.forEach(function(rec) {
+            html += `<li style="margin-bottom: 0.5rem; color: #2d3748;"><code style="background: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.875rem;">${escapeHtml(rec)}</code></li>`;
+        });
+
+        html += `
+                </ol>
+            </div>
+        `;
+
+        $('#fixRecommendations').html(html);
+    }
+
+    function displaySuggestedCommands(commands) {
+        if (!commands || commands.length === 0) {
+            $('#suggestedCommands').html('');
+            return;
+        }
+
+        let html = `
+            <div style="padding: 1.5rem; background: #f0fff4; border-radius: 0.5rem; border-left: 4px solid #48bb78;">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-terminal"></i> Suggested Commands</h3>
+                <p style="color: #4a5568; font-size: 0.875rem; margin-bottom: 1rem;">Run these commands for further investigation:</p>
+                <div style="display: grid; gap: 0.5rem;">
+        `;
+
+        commands.forEach(function(cmd) {
+            html += `
+                <div style="background: white; padding: 0.75rem; border-radius: 0.375rem; border: 1px solid #c6f6d5;">
+                    <code style="color: #2d3748; font-size: 0.875rem;">${escapeHtml(cmd)}</code>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+
+        $('#suggestedCommands').html(html);
+    }
+
+    function escapeHtml(text) {
+        return $('<div>').text(text).html();
+    }
+
+    // Chat functionality
+    $('#chatForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const question = $('#chatInput').val().trim();
+        if (!question) return;
+
+        if (!window.diagnosticContext) {
+            alert('Please run a diagnostic analysis first before asking questions.');
+            return;
+        }
+
+        // Add user message to chat
+        addChatMessage(question, 'user');
+
+        // Clear input
+        $('#chatInput').val('');
+
+        // Show loading
+        $('#chatLoading').show();
+
+        // Send question to backend
+        $.ajax({
+            url: '/api/chat-cluster-debug',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                question: question,
+                diagnostic_context: window.diagnosticContext
+            }),
+            success: function(response) {
+                if (response.status === 'success') {
+                    addChatMessage(response.answer, 'assistant');
+                } else {
+                    addChatMessage('Sorry, I encountered an error: ' + (response.error || 'Unknown error'), 'assistant');
+                }
+            },
+            error: function(xhr) {
+                addChatMessage('Sorry, I encountered an error processing your question. Please try again.', 'assistant');
+            },
+            complete: function() {
+                $('#chatLoading').hide();
+            }
+        });
+    });
+
+    function addChatMessage(message, sender) {
+        const isAssistant = sender === 'assistant';
+        const bgColor = isAssistant ? '#4299e1' : '#48bb78';
+        const icon = isAssistant ? 'fa-robot' : 'fa-user';
+
+        const messageHtml = `
+            <div class="chat-message ${sender}-message" style="margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: start; gap: 0.75rem;">
+                    <div style="background: ${bgColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <i class="fas ${icon}" style="font-size: 0.875rem;"></i>
+                    </div>
+                    <div style="background: white; padding: 0.75rem; border-radius: 0.5rem; flex: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                        <p style="margin: 0; color: #2d3748; white-space: pre-wrap;">${escapeHtml(message)}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('#chatMessages').append(messageHtml);
+
+        // Scroll to bottom
+        const chatContainer = $('#chatMessages')[0];
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+});
+</script>
+{% endblock %}

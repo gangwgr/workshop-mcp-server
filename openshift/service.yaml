@@ -1,10 +1,10 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: template-mcp-server
+  name: workshop-mcp-server
   namespace: ddis-asteroid--template
   annotations:
-    service.beta.openshift.io/serving-cert-secret-name: template-mcp-server-tls
+    service.beta.openshift.io/serving-cert-secret-name: workshop-mcp-server-tls
 spec:
   ports:
     - name: https
@@ -12,4 +12,4 @@ spec:
       port: 8443
       targetPort: 8443
   selector:
-    app: template-mcp-server
+    app: workshop-mcp-server

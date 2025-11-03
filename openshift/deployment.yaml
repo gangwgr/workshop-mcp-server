@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: template-mcp-server
+  name: workshop-mcp-server
   namespace: ddis-asteroid--template
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: template-mcp-server
+      app: workshop-mcp-server
   strategy:
     rollingUpdate:
       maxSurge: 1
@@ -16,11 +16,11 @@ spec:
   template:
     metadata:
       labels:
-        app: template-mcp-server
+        app: workshop-mcp-server
     spec:
       containers:
-        - name: template-mcp-server
-          image: images.paas.redhat.com/rh-jarvis-ai/template-mcp-server:latest
+        - name: workshop-mcp-server
+          image: images.paas.redhat.com/rh-jarvis-ai/workshop-mcp-server:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8443
@@ -32,7 +32,7 @@ spec:
               value: '/run/secrets/tls/tls.crt'
           envFrom:
             - configMapRef:
-                name: template-mcp-server-config
+                name: workshop-mcp-server-config
           livenessProbe:
             exec:
               command:
@@ -69,4 +69,4 @@ spec:
       volumes:
         - name: tls-certs
           secret:
-            secretName: template-mcp-server-tls
+            secretName: workshop-mcp-server-tls

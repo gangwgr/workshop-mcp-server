@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MCP Server{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <i class="fas fa-robot"></i>
+                <span>MCP Server Dashboard</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="/" class="{% if request.path == '/' %}active{% endif %}"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/code-review" class="{% if request.path == '/code-review' %}active{% endif %}"><i class="fas fa-code"></i> Code Review</a></li>
+                <li><a href="/pr-review" class="{% if request.path == '/pr-review' %}active{% endif %}"><i class="fab fa-github"></i> PR Review</a></li>
+                <li><a href="/ocp-testing" class="{% if request.path == '/ocp-testing' %}active{% endif %}"><i class="fas fa-vial"></i> OCP Testing</a></li>
+                <li><a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> Must-Gather</a></li>
+                <li><a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Cluster Debug</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 MCP Server Dashboard | Powered by Claude Code</p>
+        </div>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

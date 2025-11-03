@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Home - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="hero">
+        <h1><i class="fas fa-robot"></i> Welcome to MCP Server Dashboard</h1>
+        <p>Your AI-powered development assistant with comprehensive automation tools</p>
+    </div>
+
+    <div class="features-grid">
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fas fa-code"></i>
+            </div>
+            <h3>Code Review</h3>
+            <p>Line-by-line code analysis with intelligent suggestions</p>
+            <ul class="feature-list">
+                <li>Security vulnerability detection</li>
+                <li>Performance optimization</li>
+                <li>Bug detection</li>
+                <li>Best practices enforcement</li>
+            </ul>
+            <a href="/code-review" class="btn btn-primary">Start Review</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fab fa-github"></i>
+            </div>
+            <h3>PR Review</h3>
+            <p>Automated GitHub Pull Request reviews with comments</p>
+            <ul class="feature-list">
+                <li>Comprehensive file analysis</li>
+                <li>Automated comment posting</li>
+                <li>Merge readiness assessment</li>
+                <li>Quality scoring</li>
+            </ul>
+            <a href="/pr-review" class="btn btn-primary">Review PR</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fas fa-vial"></i>
+            </div>
+            <h3>OpenShift Testing</h3>
+            <p>Complete OCP test automation suite</p>
+            <ul class="feature-list">
+                <li>Test case generation (Gherkin, YAML, Go)</li>
+                <li>Step-by-step execution</li>
+                <li>Intelligent debugging</li>
+                <li>Test validation</li>
+            </ul>
+            <a href="/ocp-testing" class="btn btn-primary">Start Testing</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fas fa-search-plus"></i>
+            </div>
+            <h3>Must-Gather Analyzer</h3>
+            <p>Deep analysis of OpenShift must-gather bundles</p>
+            <ul class="feature-list">
+                <li>Comprehensive cluster health assessment</li>
+                <li>Anomaly detection with AI</li>
+                <li>SRE diagnostic reports</li>
+                <li>Root cause analysis</li>
+            </ul>
+            <a href="/mustgather-analyzer" class="btn btn-primary">Analyze Bundle</a>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <i class="fas fa-bug"></i>
+            </div>
+            <h3>Cluster Debugger Agent</h3>
+            <p>AI-powered cluster diagnostics + test automation</p>
+            <ul class="feature-list">
+                <li>Intelligent issue analysis & diagnosis</li>
+                <li>Automated test case generation (Go/Shell)</li>
+                <li>Fix recommendations with oc commands</li>
+                <li>Real-time cluster validation</li>
+            </ul>
+            <a href="/cluster-debugger" class="btn btn-primary">Debug Cluster</a>
+        </div>
+    </div>
+
+    <div class="stats-section">
+        <h2><i class="fas fa-chart-bar"></i> Capabilities</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">10+</div>
+                <div class="stat-label">Tools Available</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">50+</div>
+                <div class="stat-label">Issue Types Detected</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">14+</div>
+                <div class="stat-label">OCP Components Supported</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Automated</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tools-overview">
+        <h2><i class="fas fa-tools"></i> Available Tools</h2>
+        <div class="tools-list">
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>review_code_line_by_line</strong> - Line-by-line code review
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>review_pull_request_comprehensive</strong> - Complete PR analysis
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>post_pr_review_comments</strong> - GitHub comment posting
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>generate_ocp_test_case</strong> - OCP test generation
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>execute_ocp_test_step_by_step</strong> - Step-by-step test execution
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>debug_ocp_test_failure</strong> - Intelligent test debugging
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>validate_ocp_test_input</strong> - Test input validation
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>openshift_debug</strong> - OpenShift cluster debugging
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>analyze_mustgather_bundle</strong> - Must-gather bundle analysis
+            </div>
+            <div class="tool-item">
+                <i class="fas fa-check-circle text-success"></i>
+                <strong>debug_openshift_cluster</strong> - AI cluster debugger + test automation
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

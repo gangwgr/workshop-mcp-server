@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}Code Review - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-code"></i> Code Review</h1>
+        <p>Paste your code below for line-by-line analysis</p>
+    </div>
+
+    <div class="review-container">
+        <div class="review-form">
+            <form id="codeReviewForm">
+                <div class="form-group">
+                    <label for="language">Language</label>
+                    <select id="language" name="language" class="form-control">
+                        <option value="python">Python</option>
+                        <option value="go">Go</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="java">Java</option>
+                        <option value="typescript">TypeScript</option>
+                        <option value="ruby">Ruby</option>
+                        <option value="php">PHP</option>
+                        <option value="rust">Rust</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="severity">Severity Threshold</label>
+                    <select id="severity" name="severity" class="form-control">
+                        <option value="info">All (Info and above)</option>
+                        <option value="warning" selected>Warnings and above</option>
+                        <option value="error">Errors and above</option>
+                        <option value="critical">Critical only</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Review Focus</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="focus" value="security" checked> 🔒 Security</label>
+                        <label><input type="checkbox" name="focus" value="performance" checked> ⚡ Performance</label>
+                        <label><input type="checkbox" name="focus" value="bugs" checked> 🐛 Bugs</label>
+                        <label><input type="checkbox" name="focus" value="best-practices" checked> ✨ Best Practices</label>
+                        <label><input type="checkbox" name="focus" value="maintainability"> 🔧 Maintainability</label>
+                        <label><input type="checkbox" name="focus" value="style"> 📝 Style</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="code">Code to Review</label>
+                    <textarea id="code" name="code" class="form-control code-textarea" rows="15" placeholder="Paste your code here..."></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fas fa-search"></i> Review Code
+                </button>
+            </form>
+        </div>
+
+        <div id="reviewResults" class="review-results" style="display: none;">
+            <h2><i class="fas fa-clipboard-check"></i> Review Results</h2>
+            <div id="resultsSummary" class="results-summary"></div>
+            <div id="resultsDetails" class="results-details"></div>
+        </div>
+
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Analyzing code...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('#codeReviewForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const code = $('#code').val();
+        if (!code.trim()) {
+            alert('Please paste some code to review');
+            return;
+        }
+
+        const focus = [];
+        $('input[name="focus"]:checked').each(function() {
+            focus.push($(this).val());
+        });
+
+        const data = {
+            code: code,
+            language: $('#language').val(),
+            severity: $('#severity').val(),
+            review_focus: focus
+        };
+
+        $('#loadingSpinner').show();
+        $('#reviewResults').hide();
+
+        $.ajax({
+            url: '/api/review-code',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                displayResults(response);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            },
+            complete: function() {
+                $('#loadingSpinner').hide();
+            }
+        });
+    });
+
+    function displayResults(result) {
+        if (result.status === 'error') {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        // Display summary
+        const severity = result.issues_by_severity || {critical: 0, error: 0, warning: 0, info: 0};
+        const summary = `
+            <div class="summary-card">
+                <h3>Summary</h3>
+                <div class="summary-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Issues:</span>
+                        <span class="stat-value">${result.total_issues || 0}</span>
+                    </div>
+                    <div class="stat-item critical">
+                        <span class="stat-label">Critical:</span>
+                        <span class="stat-value">${severity.critical}</span>
+                    </div>
+                    <div class="stat-item error">
+                        <span class="stat-label">Errors:</span>
+                        <span class="stat-value">${severity.error}</span>
+                    </div>
+                    <div class="stat-item warning">
+                        <span class="stat-label">Warnings:</span>
+                        <span class="stat-value">${severity.warning}</span>
+                    </div>
+                    <div class="stat-item info">
+                        <span class="stat-label">Info:</span>
+                        <span class="stat-value">${severity.info}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('#resultsSummary').html(summary);
+
+        // Display line-by-line issues
+        let details = '<h3>Line-by-Line Issues</h3>';
+
+        if (result.line_reviews && result.line_reviews.length > 0) {
+            result.line_reviews.forEach(function(lineReview) {
+                lineReview.issues.forEach(function(issue) {
+                    const severityClass = issue.severity.toLowerCase();
+                    const severityIcon = {
+                        'critical': '🔴',
+                        'error': '🟠',
+                        'warning': '🟡',
+                        'info': '🔵'
+                    }[issue.severity] || '⚪';
+
+                    details += `
+                        <div class="issue-card ${severityClass}">
+                            <div class="issue-header">
+                                <span class="issue-severity">${severityIcon} ${issue.severity.toUpperCase()}</span>
+                                <span class="issue-category">${issue.category}</span>
+                                <span class="issue-line">Line ${lineReview.line_number}</span>
+                            </div>
+                            <div class="issue-code">
+                                <code>${escapeHtml(lineReview.line_content)}</code>
+                            </div>
+                            <div class="issue-message">
+                                <strong>Issue:</strong> ${issue.message}
+                            </div>
+                            <div class="issue-suggestion">
+                                <strong>Suggestion:</strong> ${issue.suggestion}
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+        } else {
+            details += '<p class="no-issues">✅ No issues found! Your code looks great!</p>';
+        }
+
+        $('#resultsDetails').html(details);
+        $('#reviewResults').show();
+        $('html, body').animate({
+            scrollTop: $('#reviewResults').offset().top - 20
+        }, 500);
+    }
+
+    function escapeHtml(text) {
+        return $('<div>').text(text).html();
+    }
+});
+</script>
+{% endblock %}

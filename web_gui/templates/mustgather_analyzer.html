@@ -1,0 +1,556 @@
+{% extends "base.html" %}
+
+{% block title %}Must-Gather Analyzer - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-search-plus"></i> Must-Gather Analyzer</h1>
+        <p>Analyze OpenShift must-gather bundles to identify issues and debug cluster problems</p>
+    </div>
+
+    <div class="review-container">
+        <div class="review-form">
+            <h3>Analyze Must-Gather Bundle</h3>
+            <form id="analyzeForm">
+                <div class="form-group">
+                    <label for="bundle_path">Must-Gather Bundle Path</label>
+                    <input type="text" id="bundle_path" name="bundle_path" class="form-control"
+                           placeholder="/path/to/must-gather.tar.gz or /path/to/extracted-directory" required>
+                    <small style="color: #718096; display: block; margin-top: 0.25rem;">
+                        💡 Can be a .tar.gz, .tar, .zip file or an already extracted directory
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="detailed_analysis" name="detailed_analysis" checked>
+                        Detailed Analysis (slower but more comprehensive)
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fas fa-microscope"></i> Analyze Bundle
+                </button>
+            </form>
+        </div>
+
+        <div id="analysisResults" class="review-results" style="display: none;">
+            <h2><i class="fas fa-chart-line"></i> Analysis Results</h2>
+
+            <!-- Cluster Health Summary -->
+            <div id="healthSummary"></div>
+
+            <!-- Anomaly Detection -->
+            <div id="anomalyDetection" style="margin-top: 1.5rem;"></div>
+
+            <!-- SRE Diagnostic Report -->
+            <div id="sreReport" style="margin-top: 1.5rem;"></div>
+
+            <!-- Issues List -->
+            <div id="issuesList" style="margin-top: 1.5rem;"></div>
+
+            <!-- Full Report -->
+            <div id="fullReport" style="margin-top: 1.5rem;"></div>
+
+            <!-- Chat Window -->
+            <div id="chatWindow" style="margin-top: 2rem;">
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                    <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-comments"></i> Ask Questions About Analysis</h3>
+                    <p style="color: #718096; font-size: 0.875rem; margin-bottom: 1rem;">
+                        Ask questions about the analysis results, get clarification on issues, or request recommendations.
+                    </p>
+
+                    <div id="chatMessages" style="background: #f7fafc; border-radius: 0.5rem; padding: 1rem; min-height: 300px; max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
+                        <div class="chat-message assistant-message" style="margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: start; gap: 0.75rem;">
+                                <div style="background: #4299e1; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                    <i class="fas fa-robot" style="font-size: 0.875rem;"></i>
+                                </div>
+                                <div style="background: white; padding: 0.75rem; border-radius: 0.5rem; flex: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                    <p style="margin: 0; color: #2d3748;">
+                                        Hello! I'm your AI assistant. I can help you understand the must-gather analysis results. Feel free to ask me questions like:
+                                    </p>
+                                    <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem; font-size: 0.875rem; color: #4a5568;">
+                                        <li>What is the root cause of the main issue?</li>
+                                        <li>How do I fix [specific issue]?</li>
+                                        <li>What should I prioritize first?</li>
+                                        <li>Explain [component/error] in more detail</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="chatForm" style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="chatInput" placeholder="Ask a question about the analysis..."
+                               style="flex: 1; padding: 0.75rem; border: 1px solid #cbd5e0; border-radius: 0.375rem; font-size: 0.875rem;" required>
+                        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </form>
+
+                    <div id="chatLoading" style="display: none; margin-top: 0.5rem; color: #718096; font-size: 0.875rem;">
+                        <i class="fas fa-spinner fa-spin"></i> Thinking...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p id="loadingText">Analyzing must-gather bundle...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Store analysis context globally for chat
+    window.analysisContext = null;
+
+    $('#analyzeForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const data = {
+            bundle_path: $('#bundle_path').val(),
+            detailed_analysis: $('#detailed_analysis').is(':checked')
+        };
+
+        $('#loading').show();
+        $('#loadingText').text('Analyzing must-gather bundle... This may take a few moments.');
+        $('#analysisResults').hide();
+
+        $.ajax({
+            url: '/api/analyze-mustgather',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                displayResults(response);
+            },
+            error: function(xhr) {
+                alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            },
+            complete: function() {
+                $('#loading').hide();
+            }
+        });
+    });
+
+    function displayResults(result) {
+        if (result.status === 'error') {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        // Store analysis context for chat
+        window.analysisContext = result;
+
+        // Display cluster health summary
+        displayHealthSummary(result.cluster_health);
+
+        // Display anomaly detection
+        displayAnomalyDetection(result.anomaly_detection_result);
+
+        // Display SRE diagnostic report
+        displaySREReport(result.formatted_sre_report || result.sre_diagnostic_report);
+
+        // Display issues list
+        displayIssuesList(result.issues);
+
+        // Display full report
+        displayFullReport(result.report);
+
+        $('#analysisResults').show();
+
+        // Scroll to results
+        $('html, body').animate({
+            scrollTop: $('#analysisResults').offset().top - 20
+        }, 500);
+    }
+
+    function displayHealthSummary(health) {
+        if (!health) return;
+
+        const statusColor = health.status === 'healthy' ? '#48bb78' :
+                          health.status === 'degraded' ? '#ed8936' : '#f56565';
+        const statusIcon = health.status === 'healthy' ? '✅' :
+                         health.status === 'degraded' ? '⚠️' : '🚨';
+
+        let html = `
+            <div class="summary-card" style="border-left: 4px solid ${statusColor};">
+                <h3>${statusIcon} Cluster Health: ${health.status.toUpperCase()}</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${health.status}</span></p>
+                        <p style="margin: 0.25rem 0;"><strong>Total Issues:</strong> ${health.issues_found || 0}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Critical:</strong> <span style="color: #f56565;">🚨 ${health.critical_issues || 0}</span></p>
+                        <p style="margin: 0.25rem 0;"><strong>Warnings:</strong> <span style="color: #ed8936;">⚠️ ${health.warnings || 0}</span></p>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; padding: 0.75rem; background: #f7fafc; border-radius: 0.5rem;">
+                    <p style="margin: 0;"><strong>Summary:</strong> ${health.summary || 'N/A'}</p>
+                </div>
+            </div>
+        `;
+
+        $('#healthSummary').html(html);
+    }
+
+    function displayAnomalyDetection(anomaly) {
+        if (!anomaly) return;
+
+        const statusColor = anomaly.status === 'NORMAL' ? '#48bb78' : '#f56565';
+        const scorePercent = (anomaly.score * 100).toFixed(0);
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 2px solid ${statusColor};">
+                <h3 style="margin-top: 0; color: #2d3748;">🔍 Anomaly Detection</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${anomaly.status}</span></p>
+                        <p style="margin: 0.25rem 0;"><strong>Severity:</strong> ${anomaly.severity}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0.25rem 0;"><strong>Anomaly Score:</strong> ${scorePercent}%</p>
+                        <p style="margin: 0.25rem 0;"><strong>Confidence:</strong> ${anomaly.confidence}</p>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; padding: 0.75rem; background: #f7fafc; border-radius: 0.5rem;">
+                    <h4 style="margin-top: 0; font-size: 0.875rem; color: #2d3748;">Primary Anomalies:</h4>
+                    <ul style="margin: 0; padding-left: 1.5rem;">
+        `;
+
+        if (anomaly.primary_anomalies && anomaly.primary_anomalies.length > 0) {
+            anomaly.primary_anomalies.forEach(function(item) {
+                html += `<li>${escapeHtml(item)}</li>`;
+            });
+        } else {
+            html += `<li>No significant anomalies detected</li>`;
+        }
+
+        html += `
+                    </ul>
+                </div>
+            </div>
+        `;
+
+        $('#anomalyDetection').html(html);
+    }
+
+    function displaySREReport(sreReport) {
+        if (!sreReport) return;
+
+        let html = `
+            <div style="padding: 1.5rem; background: #fffaf0; border-radius: 0.5rem; border-left: 4px solid #ed8936;">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-user-md"></i> SRE Diagnostic Report</h3>
+        `;
+
+        // If formatted report is a string, display it
+        if (typeof sreReport === 'string') {
+            html += `<pre style="white-space: pre-wrap; font-family: inherit; background: white; padding: 1rem; border-radius: 0.5rem; line-height: 1.6;">${escapeHtml(sreReport)}</pre>`;
+        } else {
+            // Display structured report
+            html += `
+                <div style="margin-bottom: 1rem;">
+                    <h4 style="color: #c05621; margin-bottom: 0.5rem;">🚨 PRIMARY ISSUE:</h4>
+                    <p style="font-weight: bold; margin: 0;">${escapeHtml(sreReport.primary_issue || 'N/A')}</p>
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                    <h4 style="color: #c05621; margin-bottom: 0.5rem;">📋 EVIDENCE:</h4>
+                    <pre style="white-space: pre-wrap; font-family: inherit; background: white; padding: 0.75rem; border-radius: 0.375rem; margin: 0;">${escapeHtml(sreReport.evidence || 'N/A')}</pre>
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                    <h4 style="color: #c05621; margin-bottom: 0.5rem;">💥 IMPACT:</h4>
+                    <ul style="margin: 0; padding-left: 1.5rem;">
+            `;
+
+            if (sreReport.impact && sreReport.impact.length > 0) {
+                sreReport.impact.forEach(function(item) {
+                    html += `<li>${escapeHtml(item)}</li>`;
+                });
+            } else {
+                html += `<li>Impact information not available</li>`;
+            }
+
+            html += `
+                    </ul>
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                    <h4 style="color: #c05621; margin-bottom: 0.5rem;">🛠️ IMMEDIATE ACTIONS:</h4>
+                    <ol style="margin: 0; padding-left: 1.5rem;">
+            `;
+
+            if (sreReport.immediate_actions && sreReport.immediate_actions.length > 0) {
+                sreReport.immediate_actions.forEach(function(action) {
+                    html += `<li><code style="background: #f7fafc; padding: 0.25rem 0.5rem; border-radius: 0.25rem;">${escapeHtml(action)}</code></li>`;
+                });
+            } else {
+                html += `<li>No immediate actions recommended</li>`;
+            }
+
+            html += `
+                    </ol>
+                </div>
+
+                <div style="margin-bottom: 1rem;">
+                    <h4 style="color: #c05621; margin-bottom: 0.5rem;">🧠 ROOT CAUSE SUMMARY:</h4>
+                    <p style="margin: 0;">${escapeHtml(sreReport.root_cause_summary || 'N/A')}</p>
+                </div>
+
+                <div>
+                    <p style="margin: 0;"><strong>📊 CONFIDENCE:</strong> ${escapeHtml(sreReport.confidence_level || 'N/A')} ${sreReport.severity_emoji || ''}</p>
+                </div>
+            `;
+        }
+
+        html += `</div>`;
+
+        $('#sreReport').html(html);
+    }
+
+    function displayIssuesList(issues) {
+        if (!issues || issues.length === 0) {
+            $('#issuesList').html('<p class="no-issues">No specific issues found in the analysis.</p>');
+            return;
+        }
+
+        // Group issues by severity
+        const critical = issues.filter(i => i.severity === 'critical');
+        const warnings = issues.filter(i => i.severity === 'warning');
+        const info = issues.filter(i => i.severity === 'info');
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                <h3 style="margin-top: 0; color: #2d3748;">📋 Issues Breakdown</h3>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                    <button class="btn btn-primary" onclick="showIssueCategory('all')" id="btn-all">All (${issues.length})</button>
+                    <button class="btn" onclick="showIssueCategory('critical')" id="btn-critical">Critical (${critical.length})</button>
+                    <button class="btn" onclick="showIssueCategory('warning')" id="btn-warning">Warnings (${warnings.length})</button>
+                    <button class="btn" onclick="showIssueCategory('info')" id="btn-info">Info (${info.length})</button>
+                </div>
+                <div id="issuesContent"></div>
+            </div>
+        `;
+
+        $('#issuesList').html(html);
+
+        // Store issues globally for filtering
+        window.allIssues = issues;
+        window.criticalIssues = critical;
+        window.warningIssues = warnings;
+        window.infoIssues = info;
+
+        // Show all by default
+        showIssueCategory('all');
+    }
+
+    window.showIssueCategory = function(category) {
+        // Update button states
+        $('.btn').removeClass('btn-primary');
+        $(`#btn-${category}`).addClass('btn-primary');
+
+        let issuesToShow = [];
+        if (category === 'all') issuesToShow = window.allIssues;
+        else if (category === 'critical') issuesToShow = window.criticalIssues;
+        else if (category === 'warning') issuesToShow = window.warningIssues;
+        else if (category === 'info') issuesToShow = window.infoIssues;
+
+        if (issuesToShow.length === 0) {
+            $('#issuesContent').html('<p style="color: #718096; font-style: italic;">No issues in this category.</p>');
+            return;
+        }
+
+        let html = '';
+        issuesToShow.forEach(function(issue, idx) {
+            const severityColor = issue.severity === 'critical' ? '#f56565' :
+                                issue.severity === 'warning' ? '#ed8936' : '#4299e1';
+            const severityIcon = issue.severity === 'critical' ? '🚨' :
+                               issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+
+            html += `
+                <div style="margin-bottom: 1rem; padding: 1rem; background: #f7fafc; border-left: 3px solid ${severityColor}; border-radius: 0.375rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; color: #2d3748; font-size: 1rem;">
+                            ${severityIcon} ${escapeHtml(issue.title || 'Issue')}
+                        </h4>
+                        <span style="background: ${severityColor}; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: bold;">
+                            ${issue.severity.toUpperCase()}
+                        </span>
+                    </div>
+                    <p style="margin: 0.5rem 0; color: #4a5568;">${escapeHtml(issue.description || 'No description')}</p>
+                    <div style="margin-top: 0.5rem; font-size: 0.875rem; color: #718096;">
+                        <p style="margin: 0.25rem 0;"><strong>Component:</strong> ${escapeHtml(issue.component || 'Unknown')}</p>
+                        <p style="margin: 0.25rem 0;"><strong>Category:</strong> ${escapeHtml(issue.category || 'Unknown')}</p>
+                        ${issue.file_path ? `<p style="margin: 0.25rem 0;"><strong>File:</strong> <code style="background: white; padding: 0.125rem 0.25rem; border-radius: 0.125rem;">${escapeHtml(issue.file_path)}</code></p>` : ''}
+                        ${issue.line_number ? `<p style="margin: 0.25rem 0;"><strong>Line:</strong> ${issue.line_number}</p>` : ''}
+                        ${issue.suggested_fix ? `<p style="margin: 0.5rem 0 0 0;"><strong>Suggested Fix:</strong> ${escapeHtml(issue.suggested_fix)}</p>` : ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        $('#issuesContent').html(html);
+    };
+
+    function displayFullReport(report) {
+        if (!report) return;
+
+        let html = `
+            <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0; color: #2d3748;">📄 Full Analysis Report</h3>
+                    <button onclick="copyReport()" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                        <i class="fas fa-copy"></i> Copy Report
+                    </button>
+                </div>
+                <pre id="fullReportContent" style="background: #1a202c; color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; overflow-x: auto; max-height: 600px; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(report)}</pre>
+            </div>
+        `;
+
+        $('#fullReport').html(html);
+    }
+
+    window.copyReport = function() {
+        const pre = document.getElementById('fullReportContent');
+        const text = pre.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            alert('✅ Report copied to clipboard!');
+        }).catch(() => {
+            // Fallback for older browsers
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('✅ Report copied to clipboard!');
+        });
+    };
+
+    function escapeHtml(text) {
+        return $('<div>').text(text).html();
+    }
+
+    // Chat functionality
+    $('#chatForm').on('submit', function(e) {
+        e.preventDefault();
+
+        const question = $('#chatInput').val().trim();
+        if (!question) return;
+
+        if (!window.analysisContext) {
+            alert('Please run an analysis first before asking questions.');
+            return;
+        }
+
+        // Add user message to chat
+        addChatMessage(question, 'user');
+
+        // Clear input
+        $('#chatInput').val('');
+
+        // Show loading
+        $('#chatLoading').show();
+
+        // Send question to backend
+        $.ajax({
+            url: '/api/chat-mustgather',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                question: question,
+                analysis_context: window.analysisContext
+            }),
+            success: function(response) {
+                if (response.status === 'success') {
+                    addChatMessage(response.answer, 'assistant');
+                } else {
+                    addChatMessage('Sorry, I encountered an error: ' + (response.error || 'Unknown error'), 'assistant');
+                }
+            },
+            error: function(xhr) {
+                addChatMessage('Sorry, I encountered an error processing your question. Please try again.', 'assistant');
+            },
+            complete: function() {
+                $('#chatLoading').hide();
+            }
+        });
+    });
+
+    function addChatMessage(message, sender) {
+        const isAssistant = sender === 'assistant';
+        const bgColor = isAssistant ? '#4299e1' : '#48bb78';
+        const icon = isAssistant ? 'fa-robot' : 'fa-user';
+
+        const messageHtml = `
+            <div class="chat-message ${sender}-message" style="margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: start; gap: 0.75rem;">
+                    <div style="background: ${bgColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <i class="fas ${icon}" style="font-size: 0.875rem;"></i>
+                    </div>
+                    <div style="background: white; padding: 0.75rem; border-radius: 0.5rem; flex: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                        <p style="margin: 0; color: #2d3748; white-space: pre-wrap;">${escapeHtml(message)}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('#chatMessages').append(messageHtml);
+
+        // Scroll to bottom
+        const chatContainer = $('#chatMessages')[0];
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+});
+</script>
+
+<style>
+.summary-card {
+    padding: 1.5rem;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1.5rem;
+}
+
+.btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    background: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.btn:hover {
+    background: #f7fafc;
+}
+
+.btn.btn-primary {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.btn.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.no-issues {
+    padding: 2rem;
+    text-align: center;
+    color: #718096;
+    font-style: italic;
+}
+</style>
+{% endblock %}
