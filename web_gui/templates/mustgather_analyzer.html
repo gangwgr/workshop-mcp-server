@@ -2,11 +2,28 @@
 
 {% block title %}Must-Gather Analyzer - MCP Server{% endblock %}
 
+{% block extra_css %}
+<style>
+.mg-page .review-container { max-width: 1200px; }
+.mg-page .review-results { overflow: visible; }
+.mg-report-pre {
+    background: #1a202c; color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem;
+    overflow-x: auto; overflow-y: visible; max-height: none;
+    font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
+}
+.mg-scroll-panel {
+    overflow-x: auto; overflow-y: auto; max-height: 70vh;
+    border-radius: 0.5rem;
+}
+#issuesContent { max-height: 60vh; overflow-y: auto; padding-right: 0.5rem; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container">
+<div class="container mg-page">
     <div class="page-header">
         <h1><i class="fas fa-search-plus"></i> Must-Gather Analyzer</h1>
-        <p>Analyze OpenShift must-gather bundles to identify issues and debug cluster problems</p>
+        <p>Analyze OpenShift must-gather bundles with full SRE report in one run</p>
     </div>
 
     <!-- LLM Selector -->
@@ -27,14 +44,59 @@
                     <input type="text" id="bundle_path" name="bundle_path" class="form-control"
                            placeholder="/path/to/must-gather.tar.gz or /path/to/extracted-directory" required>
                     <small style="color: #718096; display: block; margin-top: 0.25rem;">
-                        💡 Can be a .tar.gz, .tar, .zip file or an already extracted directory
+                        Can be a .tar.gz, .tar, .zip archive or extracted directory (hash subdirectory auto-resolved for scripts).
                     </small>
                 </div>
 
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="detailed_analysis" name="detailed_analysis" checked>
-                        Detailed Analysis (slower but more comprehensive)
+                <div id="scriptSection" style="margin-bottom:1rem;padding:0.75rem 1rem;background:#faf5ff;border-radius:0.5rem;border:1px solid #e9d8fd;">
+                    <p style="margin:0 0 0.75rem;font-weight:600;font-size:0.875rem;color:#553c9a;">Focused script options</p>
+                    <div class="form-group">
+                        <label>Quick Presets</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                            <button type="button" class="btn btn-preset" data-preset="health_check">Quick Health Check</button>
+                            <button type="button" class="btn btn-preset" data-preset="degraded_cluster">Degraded Cluster</button>
+                            <button type="button" class="btn btn-preset" data-preset="network_issues">Network Issues</button>
+                        </div>
+                        <small style="color:#718096;display:block;margin-top:0.35rem;">Click a preset to select it, then Analyze. Default preset: Quick Health Check.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="script_select">Or single script (overrides preset)</label>
+                        <select id="script_select" class="form-control">
+                            <option value="">Use preset above</option>
+                        </select>
+                    </div>
+
+                    <input type="hidden" id="selected_preset" value="health_check">
+
+                    <div id="scriptOptions" style="display:none;margin-bottom:0;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                        <div id="opt_namespace" class="form-group" style="display:none;margin-bottom:0.5rem;">
+                            <label for="script_namespace">Namespace (optional)</label>
+                            <input type="text" id="script_namespace" class="form-control" placeholder="e.g. openshift-etcd">
+                        </div>
+                        <div id="opt_problems_only" style="display:none;margin-bottom:0.5rem;">
+                            <label><input type="checkbox" id="script_problems_only"> Problems only</label>
+                        </div>
+                        <div id="opt_event_type" class="form-group" style="display:none;margin-bottom:0.5rem;">
+                            <label for="script_event_type">Event type</label>
+                            <select id="script_event_type" class="form-control">
+                                <option value="">All</option>
+                                <option value="Warning">Warning</option>
+                                <option value="Normal">Normal</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:1rem;padding:0.65rem 1rem;background:#f7fafc;border-radius:0.5rem;border:1px solid #e2e8f0;">
+                    <label style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" id="deep_log_scan" checked style="margin-top:0.2rem;">
+                        <span>
+                            <strong>Deep log scanning</strong>
+                            <small style="display:block;color:#718096;margin-top:0.15rem;">
+                                Scans all logs, YAML, and JSON in the bundle (static-pods, termination logs, namespaces). Slower (~10–30s) but finds errors in log files.
+                            </small>
+                        </span>
                     </label>
                 </div>
 
@@ -47,6 +109,9 @@
         <div id="analysisResults" class="review-results" style="display: none;">
             <h2><i class="fas fa-chart-line"></i> Analysis Results</h2>
 
+            <!-- Focused Script Results (preset-specific, shown first) -->
+            <div id="focusedScriptResults" style="margin-bottom: 1.5rem;"></div>
+
             <!-- Cluster Health Summary -->
             <div id="healthSummary"></div>
 
@@ -56,10 +121,16 @@
             <!-- SRE Diagnostic Report -->
             <div id="sreReport" style="margin-top: 1.5rem;"></div>
 
+            <!-- Critical Logs -->
+            <div id="criticalLogs" style="margin-top: 1.5rem;"></div>
+
             <!-- Issues List -->
             <div id="issuesList" style="margin-top: 1.5rem;"></div>
 
-            <!-- Full Report -->
+            <!-- AI Root-Cause Analysis -->
+            <div id="llmAnalysisContainer" style="margin-top: 1.5rem;"></div>
+
+            <!-- Unified report: focused scripts + full analysis -->
             <div id="fullReport" style="margin-top: 1.5rem;"></div>
 
             <!-- Chat Window -->
@@ -117,37 +188,553 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
-    // Store analysis context globally for chat
     window.analysisContext = null;
+    window.scriptCatalog = [];
+
+    $('.btn-preset[data-preset="health_check"]').css({background:'#805ad5', color:'white'});
+
+    // Load script catalog
+    $.get('/api/mustgather-scripts', function(data) {
+        if (data.status !== 'success') return;
+        window.scriptCatalog = data.scripts || [];
+        const $sel = $('#script_select').empty();
+        $sel.append($('<option>').val('').text('Use preset above'));
+        window.scriptCatalog.forEach(function(s) {
+            if (!s.available) return;
+            $sel.append($('<option>').val(s.id).text(s.label + ' — ' + s.description));
+        });
+    });
+
+    $('#script_select').on('change', function() {
+        const id = $(this).val();
+        const script = window.scriptCatalog.find(s => s.id === id);
+        $('#scriptOptions').toggle(!!script);
+        $('#opt_namespace').toggle(script && script.options.indexOf('namespace') >= 0);
+        $('#opt_problems_only').toggle(script && script.options.indexOf('problems_only') >= 0);
+        $('#opt_event_type').toggle(script && script.options.indexOf('event_type') >= 0);
+        if (id) {
+            $('.btn-preset').css({background:'white', color:'#805ad5'});
+        }
+    });
+
+    $('.btn-preset').on('click', function(e) {
+        e.preventDefault();
+        const preset = $(this).data('preset');
+        $('#selected_preset').val(preset);
+        $('#script_select').val('');
+        $('#scriptOptions').hide();
+        $('.btn-preset').css({background:'white', color:'#805ad5'});
+        $(this).css({background:'#805ad5', color:'white'});
+    });
+
+    function buildScriptPayload(bundlePath) {
+        const scriptId = $('#script_select').val();
+        const payload = {
+            bundle_path: bundlePath,
+            namespace: $('#script_namespace').val().trim() || null,
+            problems_only: $('#script_problems_only').is(':checked'),
+            event_type: $('#script_event_type').val() || null,
+        };
+        if (scriptId) {
+            payload.script_id = scriptId;
+        } else {
+            payload.preset = $('#selected_preset').val() || 'health_check';
+        }
+        return payload;
+    }
+
+    function runScriptAjax(bundlePath) {
+        return $.ajax({
+            url: '/api/run-mustgather-script',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(buildScriptPayload(bundlePath)),
+        });
+    }
+
+    function runSreAjax(bundlePath) {
+        const deepLogs = $('#deep_log_scan').is(':checked');
+        return $.ajax({
+            url: '/api/analyze-mustgather',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                bundle_path: bundlePath,
+                detailed_analysis: deepLogs,
+            }),
+        });
+    }
 
     $('#analyzeForm').on('submit', function(e) {
         e.preventDefault();
 
-        const data = {
-            bundle_path: $('#bundle_path').val(),
-            detailed_analysis: $('#detailed_analysis').is(':checked')
-        };
+        const bundlePath = $('#bundle_path').val().trim();
+        if (!bundlePath) { alert('Enter must-gather path'); return; }
 
+        const deepLogs = $('#deep_log_scan').is(':checked');
         $('#loading').show();
-        $('#loadingText').text('Analyzing must-gather bundle... This may take a few moments.');
+        $('#loadingText').text(deepLogs
+            ? 'Running deep log scan, SRE analysis, and focused scripts...'
+            : 'Running SRE analysis and focused scripts...');
         $('#analysisResults').hide();
+        $('#focusedScriptResults, #healthSummary, #anomalyDetection, #sreReport, #criticalLogs, #issuesList, #llmAnalysisContainer, #fullReport').empty();
 
-        $.ajax({
-            url: '/api/analyze-mustgather',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify(data),
-            success: function(response) {
-                displayResults(response);
-            },
-            error: function(xhr) {
-                alert('Error: ' + (xhr.responseJSON?.error || 'Unknown error'));
-            },
-            complete: function() {
-                $('#loading').hide();
+        $.when(runSreAjax(bundlePath), runScriptAjax(bundlePath)).done(function(sreResp, scriptResp) {
+            const sreResult = sreResp[0];
+            const scriptResult = scriptResp[0];
+            window.analysisContext = { mode: 'unified' };
+            if (sreResult.status === 'error') {
+                alert('SRE analysis error: ' + sreResult.error);
+            } else {
+                displayResults(sreResult, scriptResult, false);
+                Object.assign(window.analysisContext, sreResult);
             }
+            if (sreResult.status !== 'error') {
+                window.analysisContext.unified_report = $('#fullReportContent').text();
+                window.analysisContext.script_output = formatScriptOutput(scriptResult);
+            }
+        }).fail(function(xhr) {
+            alert('Error: ' + (xhr.responseJSON?.error || 'Analysis failed'));
+        }).always(function() {
+            $('#loading').hide();
+            $('#analysisResults').show();
+            $('html, body').animate({ scrollTop: $('#analysisResults').offset().top - 20 }, 500);
         });
     });
+
+    function formatScriptOutput(result) {
+        if (!result) return '';
+        if (result.preset && result.results) {
+            let combined = '';
+            result.results.forEach(function(r) {
+                combined += '\n' + '='.repeat(72) + '\n';
+                combined += (r.script_label || r.script_id || 'Script') + '\n';
+                combined += '='.repeat(72) + '\n';
+                combined += (r.output || r.error || '') + '\n';
+            });
+            return combined.trim();
+        }
+        if (result.status === 'error') {
+            return result.error || 'Unknown error';
+        }
+        return result.output || result.error || '';
+    }
+
+    function buildNamespaceFilter(namespace) {
+        const keywords = [namespace];
+        if (namespace.startsWith('openshift-')) {
+            keywords.push(namespace.replace('openshift-', ''));
+        } else {
+            keywords.push('openshift-' + namespace);
+        }
+        return keywords;
+    }
+
+    function getActiveFilter() {
+        const scriptId = $('#script_select').val();
+        const presetId = $('#selected_preset').val();
+        const namespace = $('#script_namespace').val().trim();
+
+        if (scriptId) {
+            // If user provided a namespace, always use it as the filter
+            if (namespace) {
+                return buildNamespaceFilter(namespace);
+            }
+
+            // For scripts that target a specific component without namespace input
+            const filterMap = {
+                'etcd': ['openshift-etcd', 'etcd-'],
+                'network': ['ovn', 'sdn', 'openshift-network', 'openshift-ingress', 'openshift-dns', 'router'],
+                'ovn_dbs': ['ovn', 'openshift-ovn'],
+                'nodes': ['NotReady', 'SchedulingDisabled', 'NodeNotReady', 'NodePressure', 'DiskPressure', 'MemoryPressure', 'PIDPressure', 'openshift-machine-api'],
+                'prometheus': ['openshift-monitoring', 'prometheus', 'alertmanager'],
+                'clusteroperators': ['clusteroperator', 'degraded', 'unavailable'],
+                'clusterversion': ['clusterversion', 'cluster-version', 'upgrade'],
+                'pvs': ['storage', 'pv ', 'pvc', 'csi', 'persistentvolume'],
+            };
+            return filterMap[scriptId] || null;
+        }
+
+        if (presetId === 'network_issues') {
+            return ['ovn', 'sdn', 'network', 'ingress', 'dns', 'router'];
+        }
+
+        return null;
+    }
+
+    function filterByKeywords(items, keywords, fields) {
+        if (!keywords || keywords.length === 0) return items;
+        return items.filter(function(item) {
+            return keywords.some(function(kw) {
+                return fields.some(function(f) {
+                    return (item[f] || '').toLowerCase().includes(kw.toLowerCase());
+                });
+            });
+        });
+    }
+
+    function displayResults(result, scriptResult, scroll) {
+        if (scroll === undefined) scroll = true;
+        if (result.status === 'error') {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        const activeFilter = getActiveFilter();
+        const scriptId = $('#script_select').val();
+        const namespace = $('#script_namespace').val().trim();
+        let scriptLabel = scriptId ? (window.scriptCatalog.find(s => s.id === scriptId) || {}).label || scriptId : null;
+        if (scriptLabel && namespace) {
+            scriptLabel = namespace + ' (' + scriptLabel + ')';
+        }
+
+        if (activeFilter && scriptId) {
+            displayComponentFocusedView(result, scriptResult, activeFilter, scriptLabel, scriptId);
+        } else {
+            displayFullClusterView(result, scriptResult);
+        }
+
+        if (scroll) {
+            $('#analysisResults').show();
+            $('html, body').animate({
+                scrollTop: $('#analysisResults').offset().top - 20
+            }, 500);
+        }
+    }
+
+    function displayComponentFocusedView(result, scriptResult, activeFilter, componentName, scriptId) {
+        const filterLabel = componentName || activeFilter[0];
+
+        // 1. Component Health Summary (derived from filtered issues)
+        let filteredIssues = filterByKeywords(result.issues || [], activeFilter, ['component', 'title', 'description', 'file_path']);
+        let filteredLogs = filterByKeywords(result.critical_logs || [], activeFilter, ['component', 'message', 'file', 'tag']);
+
+        const criticalCount = filteredIssues.filter(i => i.severity === 'critical').length;
+        const warningCount = filteredIssues.filter(i => i.severity === 'warning').length;
+        const totalIssues = filteredIssues.length;
+        const logCount = filteredLogs.length;
+
+        let compStatus, compStatusColor, compStatusIcon;
+        if (criticalCount > 0) {
+            compStatus = 'CRITICAL'; compStatusColor = '#f56565'; compStatusIcon = '🚨';
+        } else if (warningCount > 0) {
+            compStatus = 'WARNING'; compStatusColor = '#ed8936'; compStatusIcon = '⚠️';
+        } else {
+            compStatus = 'HEALTHY'; compStatusColor = '#48bb78'; compStatusIcon = '✅';
+        }
+
+        let healthHtml = `
+            <div style="padding:1.5rem;background:white;border-radius:0.5rem;border:2px solid ${compStatusColor};">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                    <h3 style="margin:0;color:#2d3748;">${compStatusIcon} ${escapeHtml(filterLabel)} — Component Analysis</h3>
+                    <span style="background:${compStatusColor};color:white;padding:0.25rem 0.75rem;border-radius:0.25rem;font-weight:bold;font-size:0.85rem;">${compStatus}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-top:1rem;">
+                    <div style="text-align:center;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                        <div style="font-size:1.5rem;font-weight:bold;color:${compStatusColor};">${totalIssues}</div>
+                        <div style="font-size:0.8rem;color:#718096;">Issues Found</div>
+                    </div>
+                    <div style="text-align:center;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                        <div style="font-size:1.5rem;font-weight:bold;color:#f56565;">${criticalCount}</div>
+                        <div style="font-size:0.8rem;color:#718096;">Critical</div>
+                    </div>
+                    <div style="text-align:center;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                        <div style="font-size:1.5rem;font-weight:bold;color:#ed8936;">${warningCount}</div>
+                        <div style="font-size:0.8rem;color:#718096;">Warnings</div>
+                    </div>
+                    <div style="text-align:center;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                        <div style="font-size:1.5rem;font-weight:bold;color:#e53e3e;">${logCount}</div>
+                        <div style="font-size:0.8rem;color:#718096;">Error Logs</div>
+                    </div>
+                </div>
+            </div>`;
+        $('#healthSummary').html(healthHtml);
+
+        // 2. Script Output (pods, member status, etc.)
+        displayFocusedScripts(scriptResult);
+
+        // 3. Component-specific Diagnostic (replaces SRE report and anomaly)
+        let diagHtml = `
+            <div style="padding:1.5rem;background:white;border-radius:0.5rem;border:1px solid #e2e8f0;">
+                <h3 style="margin-top:0;color:#2d3748;">🔍 ${escapeHtml(filterLabel)} Diagnostic Summary</h3>`;
+
+        if (totalIssues === 0 && logCount === 0) {
+            diagHtml += `
+                <div style="padding:1rem;background:#f0fff4;border:1px solid #c6f6d5;border-radius:0.375rem;">
+                    <p style="margin:0;color:#276749;"><strong>✅ No issues detected</strong> — ${escapeHtml(filterLabel)} component appears to be operating normally.</p>
+                    <p style="margin:0.5rem 0 0;color:#2f855a;font-size:0.85rem;">All pods are running, no critical logs or events found for this component.</p>
+                </div>`;
+        } else {
+            diagHtml += `<div style="padding:1rem;background:#fff5f5;border:1px solid #fed7d7;border-radius:0.375rem;margin-bottom:1rem;">`;
+            diagHtml += `<p style="margin:0 0 0.5rem;color:#c53030;"><strong>Issues detected for ${escapeHtml(filterLabel)}:</strong></p><ul style="margin:0;padding-left:1.5rem;color:#742a2a;">`;
+            filteredIssues.forEach(function(issue) {
+                const icon = issue.severity === 'critical' ? '🚨' : '⚠️';
+                diagHtml += `<li>${icon} ${escapeHtml(issue.title || issue.description)}</li>`;
+            });
+            if (logCount > 0) {
+                diagHtml += `<li>📋 ${logCount} error log entries found in bundle</li>`;
+            }
+            diagHtml += `</ul></div>`;
+
+            diagHtml += `<div style="padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">`;
+            diagHtml += `<h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:#2d3748;">📂 Investigation Steps:</h4>`;
+            diagHtml += `<ol style="margin:0;padding-left:1.5rem;font-size:0.85rem;color:#4a5568;">`;
+            diagHtml += getComponentInvestigationSteps(scriptId || activeFilter[0]);
+            diagHtml += `</ol></div>`;
+        }
+
+        diagHtml += `</div>`;
+        $('#anomalyDetection').html(diagHtml);
+        $('#sreReport').empty();
+
+        // 4. Filtered Critical Logs
+        if (filteredLogs.length > 0) {
+            displayCriticalLogs(filteredLogs);
+        } else {
+            $('#criticalLogs').html(`
+                <div style="padding:1.5rem;background:white;border-radius:0.5rem;border:1px solid #c6f6d5;">
+                    <h3 style="margin-top:0;color:#2d3748;">📋 ${escapeHtml(filterLabel)} Logs</h3>
+                    <p style="color:#276749;">✅ No critical log entries found for <strong>${escapeHtml(filterLabel)}</strong>. This component shows no error signals in the bundle.</p>
+                </div>`);
+        }
+
+        // 5. Filtered Issues
+        if (filteredIssues.length > 0) {
+            displayIssuesList(filteredIssues, filteredIssues.length, false);
+        } else {
+            $('#issuesList').html(`
+                <div style="padding:1.5rem;background:white;border-radius:0.5rem;border:1px solid #c6f6d5;">
+                    <h3 style="margin-top:0;color:#2d3748;">📋 ${escapeHtml(filterLabel)} Issues</h3>
+                    <p style="color:#276749;">✅ No event-based issues detected for <strong>${escapeHtml(filterLabel)}</strong>.</p>
+                </div>`);
+        }
+
+        // 6. Auto-trigger LLM deep analysis for this component
+        runComponentLLMAnalysis(filterLabel, scriptResult, filteredIssues, filteredLogs, result.cluster_health, '');
+    }
+
+    function runComponentLLMAnalysis(component, scriptResult, issues, logs, clusterHealth, sreReport) {
+        $('#llmAnalysisContainer').html(`
+            <div id="llmComponentAnalysis" style="padding:1.5rem;background:white;border-radius:0.5rem;border:2px solid #805ad5;">
+                <h3 style="margin-top:0;color:#553c9a;">🧠 AI Root-Cause Analysis — ${escapeHtml(component)}</h3>
+                <div style="padding:1rem;background:#f7fafc;border-radius:0.375rem;">
+                    <p style="margin:0;color:#718096;"><i class="fas fa-spinner fa-spin"></i> Analyzing ${escapeHtml(component)} with LLM... (finding root cause, impact, next steps)</p>
+                </div>
+            </div>`);
+
+        // Build script output from single script or preset with multiple results
+        let scriptOutput = '';
+        if (scriptResult) {
+            if (scriptResult.output) {
+                scriptOutput = scriptResult.output;
+            } else if (scriptResult.results && scriptResult.results.length > 0) {
+                scriptOutput = scriptResult.results.map(function(r) {
+                    return '=== ' + (r.script_label || r.script_id) + ' ===\n' + (r.output || r.error || '');
+                }).join('\n\n');
+            }
+        }
+
+        const payload = {
+            component: component,
+            script_output: scriptOutput.substring(0, 6000),
+            issues: (issues || []).slice(0, 15),
+            critical_logs: (logs || []).slice(0, 20),
+            cluster_health: clusterHealth || {},
+            sre_report: sreReport || ''
+        };
+
+        $.ajax({
+            url: '/api/analyze-component',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            timeout: 120000,
+            success: function(resp) {
+                if (resp.status === 'success' && resp.analysis) {
+                    const formatted = formatMarkdown(resp.analysis);
+                    $('#llmComponentAnalysis').html(`
+                        <h3 style="margin-top:0;color:#553c9a;">🧠 AI Root-Cause Analysis — ${escapeHtml(component)}</h3>
+                        <div style="padding:1rem;background:#faf5ff;border-radius:0.375rem;border:1px solid #e9d8fd;">
+                            ${formatted}
+                        </div>
+                        <div id="feedbackSection" style="margin-top:1rem;padding:1rem;background:#f7fafc;border-radius:0.375rem;border:1px solid #e2e8f0;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                                <span style="font-size:0.85rem;color:#4a5568;font-weight:600;">Was this analysis correct?</span>
+                                <button onclick="$('#feedbackCorrect').show();$('#feedbackForm').hide();" class="btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:#c6f6d5;border:none;border-radius:0.25rem;">👍 Yes</button>
+                                <button onclick="$('#feedbackForm').show();$('#feedbackCorrect').hide();" class="btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:#fed7d7;border:none;border-radius:0.25rem;">👎 No, let me correct</button>
+                            </div>
+                            <div id="feedbackCorrect" style="display:none;color:#276749;font-size:0.8rem;">✅ Thanks! Positive feedback recorded.</div>
+                            <div id="feedbackForm" style="display:none;">
+                                <textarea id="feedbackText" rows="3" style="width:100%;padding:0.5rem;border:1px solid #e2e8f0;border-radius:0.25rem;font-size:0.85rem;margin-bottom:0.5rem;" placeholder="What is the correct root cause? e.g., 'The real issue is the upgrade is stuck for 342 days because operators are unavailable'"></textarea>
+                                <button onclick="submitFeedback('${escapeHtml(component)}')" class="btn btn-primary" style="padding:0.4rem 1rem;font-size:0.8rem;">Save Correction</button>
+                                <span id="feedbackStatus" style="margin-left:0.5rem;font-size:0.8rem;color:#718096;"></span>
+                            </div>
+                        </div>`);
+                } else {
+                    $('#llmComponentAnalysis').html(`
+                        <h3 style="margin-top:0;color:#553c9a;">🧠 AI Root-Cause Analysis — ${escapeHtml(component)}</h3>
+                        <div style="padding:1rem;background:#fff5f5;border-radius:0.375rem;border:1px solid #fed7d7;">
+                            <p style="margin:0;color:#c53030;">⚠️ ${escapeHtml(resp.error || 'LLM analysis unavailable. Use the chat below to ask questions.')}</p>
+                        </div>`);
+                }
+            },
+            error: function(xhr) {
+                const errMsg = xhr.responseJSON ? xhr.responseJSON.error : 'LLM analysis request failed';
+                $('#llmComponentAnalysis').html(`
+                    <h3 style="margin-top:0;color:#553c9a;">🧠 AI Root-Cause Analysis — ${escapeHtml(component)}</h3>
+                    <div style="padding:1rem;background:#fff5f5;border-radius:0.375rem;border:1px solid #fed7d7;">
+                        <p style="margin:0;color:#c53030;">⚠️ ${escapeHtml(errMsg)}</p>
+                    </div>`);
+            }
+        });
+    }
+
+    window.submitFeedback = function(component) {
+        const correction = $('#feedbackText').val().trim();
+        if (!correction) {
+            $('#feedbackStatus').text('Please enter the correct analysis.').css('color', '#c53030');
+            return;
+        }
+        $('#feedbackStatus').text('Saving...').css('color', '#718096');
+        $.ajax({
+            url: '/api/mustgather-feedback',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                component: component,
+                correction: correction,
+                timestamp: new Date().toISOString()
+            }),
+            success: function(resp) {
+                if (resp.status === 'success') {
+                    $('#feedbackForm').html('<p style="color:#276749;font-size:0.85rem;margin:0;">✅ Correction saved! Future analyses will use your input as context.</p>');
+                } else {
+                    $('#feedbackStatus').text('Error: ' + (resp.error || 'unknown')).css('color', '#c53030');
+                }
+            },
+            error: function() {
+                $('#feedbackStatus').text('Failed to save. Try again.').css('color', '#c53030');
+            }
+        });
+    };
+
+    function getComponentInvestigationSteps(component) {
+        const ns = component.startsWith('openshift-') ? component : 'openshift-' + component;
+        const shortName = component.replace('openshift-', '');
+
+        const stepsMap = {
+            'nodes': `
+                <li>Check <code>cluster-scoped-resources/core/nodes/</code> for node YAML and conditions</li>
+                <li>Review node conditions: DiskPressure, MemoryPressure, PIDPressure, NetworkUnavailable</li>
+                <li>Inspect <code>host_service_logs/</code> for kubelet and crio logs</li>
+                <li>Check <code>cluster-scoped-resources/machineconfiguration.openshift.io/</code> for MCP status</li>
+                <li>Review node resource utilization (allocatable vs capacity in node YAML)</li>`,
+            'etcd': `
+                <li>Check <code>namespaces/openshift-etcd/pods/</code> for pod logs and restarts</li>
+                <li>Review <code>etcd_info/endpoint_health.json</code> for member health</li>
+                <li>Inspect <code>etcd_info/member_list.json</code> for quorum status</li>
+                <li>Check <code>namespaces/openshift-etcd/core/events.yaml</code> for FailedMount/Unhealthy events</li>
+                <li>Review etcd pod logs for slow apply, leader election, or disk latency warnings</li>`,
+            'network': `
+                <li>Check <code>namespaces/openshift-ovn-kubernetes/pods/</code> for OVN pod logs</li>
+                <li>Review <code>namespaces/openshift-ingress/pods/</code> for router issues</li>
+                <li>Inspect <code>namespaces/openshift-dns/pods/</code> for DNS resolution failures</li>
+                <li>Check node-level networking via <code>host_service_logs/</code></li>`,
+            'clusterversion': `
+                <li>Review <code>cluster-scoped-resources/config.openshift.io/clusterversions.yaml</code> for conditions</li>
+                <li>Check which operators are blocking the upgrade (Available: False)</li>
+                <li>Inspect <code>namespaces/openshift-cluster-version/pods/</code> for CVO logs</li>
+                <li>Review upgrade history and failing operator messages</li>`,
+            'clusteroperators': `
+                <li>Review <code>cluster-scoped-resources/config.openshift.io/clusteroperators/</code> for each operator status</li>
+                <li>Check operators with Degraded=True or Available=False conditions</li>
+                <li>Inspect operator pod logs under <code>namespaces/openshift-*-operator/pods/</code></li>
+                <li>Review events in affected operator namespaces</li>`,
+        };
+
+        if (stepsMap[shortName]) return stepsMap[shortName];
+        if (stepsMap[component]) return stepsMap[component];
+
+        return `
+                <li>Check <code>namespaces/${escapeHtml(ns)}/pods/</code> for pod status, restarts, and container logs</li>
+                <li>Review <code>namespaces/${escapeHtml(ns)}/core/events.yaml</code> for error/warning events</li>
+                <li>Inspect container logs under <code>namespaces/${escapeHtml(ns)}/pods/*/logs/current.log</code></li>
+                <li>Check for FailedScheduling, FailedMount, Unhealthy, CrashLoopBackOff events</li>
+                <li>Review resource requests/limits and node capacity</li>`;
+    }
+
+    function displayFullClusterView(result, scriptResult) {
+        // Display focused script results
+        displayFocusedScripts(scriptResult);
+
+        // Display cluster health summary
+        displayHealthSummary(result.cluster_health);
+
+        if (result.deep_log_scan) {
+            const scanned = result.scanned_files || 0;
+            $('#healthSummary').append(
+                `<p style="margin-top:0.5rem;font-size:0.85rem;color:#553c9a;"><i class="fas fa-file-alt"></i> Deep log scan: ${scanned} files scanned</p>`
+            );
+        }
+
+        // Display anomaly detection
+        displayAnomalyDetection(result.anomaly_detection_result);
+
+        // Display SRE diagnostic report
+        displaySREReport(result.formatted_sre_report || result.sre_diagnostic_report);
+
+        // Display critical logs
+        displayCriticalLogs(result.critical_logs || []);
+
+        // Display issues
+        displayIssuesList(result.issues || [], (result.issues || []).length, false);
+
+        // Auto-trigger LLM deep analysis for full cluster
+        const presetId = $('#selected_preset').val() || 'health_check';
+        const presetLabel = presetId === 'degraded_cluster' ? 'Degraded Cluster' :
+                           presetId === 'network_issues' ? 'Network Issues' : 'Cluster Health';
+        const sreText = result.formatted_sre_report || (result.sre_diagnostic_report ? JSON.stringify(result.sre_diagnostic_report) : '');
+        runComponentLLMAnalysis(presetLabel, scriptResult, result.issues || [], result.critical_logs || [], result.cluster_health, sreText);
+    }
+
+    function displayFocusedScripts(scriptResult) {
+        if (!scriptResult) return;
+        const container = $('#focusedScriptResults');
+
+        if (scriptResult.preset && scriptResult.results) {
+            const presetLabel = scriptResult.preset_label || scriptResult.preset;
+            let html = `<div style="padding:1.25rem;background:white;border:1px solid #e9d8fd;border-radius:0.5rem;border-left:4px solid #805ad5;">`;
+            html += `<h3 style="margin:0 0 0.75rem;color:#553c9a;font-size:1rem;"><i class="fas fa-bullseye"></i> Focused Scripts: ${escapeHtml(presetLabel)}</h3>`;
+
+            scriptResult.results.forEach(function(r) {
+                const statusIcon = r.status === 'success' ? '✅' : '❌';
+                const borderColor = r.status === 'success' ? '#c6f6d5' : '#fed7d7';
+                html += `<div style="margin-bottom:0.75rem;padding:0.75rem;background:#f7fafc;border:1px solid ${borderColor};border-radius:0.375rem;">`;
+                html += `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;"><span>${statusIcon}</span><strong style="font-size:0.85rem;">${escapeHtml(r.script_label || r.script_id)}</strong>`;
+                if (r.exit_code !== undefined && r.exit_code !== 0) {
+                    html += ` <span style="font-size:0.7rem;background:#fed7d7;padding:0.1rem 0.4rem;border-radius:0.2rem;">exit: ${r.exit_code}</span>`;
+                }
+                html += `</div>`;
+                const output = r.output || r.error || 'No output';
+                const lines = output.split('\n');
+                const preview = lines.slice(0, 20).join('\n');
+                const hasMore = lines.length > 20;
+                html += `<pre style="background:#1a202c;color:#e2e8f0;padding:0.6rem;border-radius:0.25rem;font-size:0.75rem;max-height:200px;overflow:auto;white-space:pre-wrap;margin:0;">${escapeHtml(preview)}${hasMore ? '\n... (' + (lines.length - 20) + ' more lines)' : ''}</pre>`;
+                html += `</div>`;
+            });
+
+            html += `</div>`;
+            container.html(html);
+        } else if (scriptResult.status === 'success' && scriptResult.output) {
+            let html = `<div style="padding:1.25rem;background:white;border:1px solid #e9d8fd;border-radius:0.5rem;border-left:4px solid #805ad5;">`;
+            html += `<h3 style="margin:0 0 0.75rem;color:#553c9a;font-size:1rem;"><i class="fas fa-terminal"></i> Script: ${escapeHtml(scriptResult.script_label || scriptResult.script_id)}</h3>`;
+            html += `<pre style="background:#1a202c;color:#e2e8f0;padding:0.75rem;border-radius:0.25rem;font-size:0.75rem;max-height:300px;overflow:auto;white-space:pre-wrap;margin:0;">${escapeHtml(scriptResult.output)}</pre>`;
+            html += `</div>`;
+            container.html(html);
+        } else if (scriptResult.status === 'error') {
+            container.html(`<div style="padding:1rem;background:#fff5f5;border:1px solid #fed7d7;border-radius:0.5rem;color:#c53030;"><i class="fas fa-exclamation-triangle"></i> Script error: ${escapeHtml(scriptResult.error || 'Unknown error')}</div>`);
+        }
+    }
 
     function formatMarkdown(text) {
         if (!text) return '';
@@ -161,49 +748,6 @@ $(document).ready(function() {
         html = html.replace(/\n\n/g, '</p><p>');
         html = html.replace(/\n/g, '<br>');
         return '<p>' + html + '</p>';
-    }
-
-    function displayResults(result) {
-        if (result.status === 'error') {
-            alert('Error: ' + result.error);
-            return;
-        }
-
-        // Store analysis context for chat
-        window.analysisContext = result;
-
-        // Display cluster health summary
-        displayHealthSummary(result.cluster_health);
-
-        // Display anomaly detection
-        displayAnomalyDetection(result.anomaly_detection_result);
-
-        // Display SRE diagnostic report
-        displaySREReport(result.formatted_sre_report || result.sre_diagnostic_report);
-
-        // Display LLM-enhanced analysis if available
-        if (result.llm_enhanced_analysis) {
-            let llmHtml = `
-                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid #805ad5; margin-top: 1.5rem;">
-                    <h3 style="margin-top: 0; color: #2d3748;">🤖 AI-Enhanced Analysis (llama3)</h3>
-                    <div style="margin-top: 1rem;">${formatMarkdown(result.llm_enhanced_analysis)}</div>
-                </div>
-            `;
-            $('#sreReport').after(llmHtml);
-        }
-
-        // Display issues list
-        displayIssuesList(result.issues);
-
-        // Display full report
-        displayFullReport(result.report);
-
-        $('#analysisResults').show();
-
-        // Scroll to results
-        $('html, body').animate({
-            scrollTop: $('#analysisResults').offset().top - 20
-        }, 500);
     }
 
     function displayHealthSummary(health) {
@@ -287,7 +831,7 @@ $(document).ready(function() {
 
         // If formatted report is a string, display it
         if (typeof sreReport === 'string') {
-            html += `<pre style="white-space: pre-wrap; font-family: inherit; background: white; padding: 1rem; border-radius: 0.5rem; line-height: 1.6;">${escapeHtml(sreReport)}</pre>`;
+            html += `<pre class="mg-report-pre">${escapeHtml(sreReport)}</pre>`;
         } else {
             // Display structured report
             html += `
@@ -351,21 +895,68 @@ $(document).ready(function() {
         $('#sreReport').html(html);
     }
 
-    function displayIssuesList(issues) {
+    function displayCriticalLogs(criticalLogs) {
+        if (!criticalLogs || criticalLogs.length === 0) {
+            $('#criticalLogs').html('');
+            return;
+        }
+
+        let html = `
+            <div style="padding: 1.5rem; background: #fff5f5; border-radius: 0.5rem; border: 2px solid #fc8181;">
+                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-file-medical-alt"></i> Critical Logs</h3>
+                <p style="color: #718096; font-size: 0.875rem; margin-bottom: 1rem;">
+                    Highest-signal log lines from the bundle (upgrade failures, operator errors, API outages).
+                </p>
+        `;
+
+        criticalLogs.forEach(function(entry, idx) {
+            const tagColor = entry.tag === 'upgrade' ? '#c53030' :
+                           entry.tag === 'crio' ? '#9b2c2c' :
+                           entry.tag === 'operator' ? '#dd6b20' : '#e53e3e';
+            html += `
+                <div style="margin-bottom: 1rem; padding: 1rem; background: white; border-left: 4px solid ${tagColor}; border-radius: 0.375rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <strong style="color: #2d3748;">#${idx + 1} ${escapeHtml(entry.component || 'unknown')}</strong>
+                        <span style="background: ${tagColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; text-transform: uppercase;">
+                            ${escapeHtml(entry.tag || 'log')}
+                        </span>
+                    </div>
+                    <p style="margin: 0.5rem 0; font-family: monospace; font-size: 0.8rem; color: #4a5568; word-break: break-word; white-space: pre-wrap;">${escapeHtml(entry.message || '')}</p>
+                    <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: #718096;">
+                        <code style="background: #f7fafc; padding: 0.125rem 0.25rem;">${escapeHtml(entry.file || '')}</code>
+                        ${entry.line ? ` &middot; line ${entry.line}` : ''}
+                    </p>
+                </div>
+            `;
+        });
+
+        html += `</div>`;
+        $('#criticalLogs').html(html);
+    }
+
+    function displayIssuesList(issues, totalFound, truncated) {
         if (!issues || issues.length === 0) {
             $('#issuesList').html('<p class="no-issues">No specific issues found in the analysis.</p>');
             return;
         }
+
+        const total = totalFound || issues.length;
+        const isTruncated = truncated || (total > issues.length);
 
         // Group issues by severity
         const critical = issues.filter(i => i.severity === 'critical');
         const warnings = issues.filter(i => i.severity === 'warning');
         const info = issues.filter(i => i.severity === 'info');
 
+        let truncNote = isTruncated
+            ? `<p style="color:#ed8936;font-size:0.85rem;margin-bottom:1rem;">Showing top ${issues.length} of ${total} issues. See Focused Script output and SRE report for summary.</p>`
+            : '';
+
         let html = `
             <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
                 <h3 style="margin-top: 0; color: #2d3748;">📋 Issues Breakdown</h3>
-                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                ${truncNote}
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
                     <button class="btn btn-primary" onclick="showIssueCategory('all')" id="btn-all">All (${issues.length})</button>
                     <button class="btn" onclick="showIssueCategory('critical')" id="btn-critical">Critical (${critical.length})</button>
                     <button class="btn" onclick="showIssueCategory('warning')" id="btn-warning">Warnings (${warnings.length})</button>
@@ -403,8 +994,13 @@ $(document).ready(function() {
             return;
         }
 
+        const MAX_SHOW = 30;
+        const slice = issuesToShow.slice(0, MAX_SHOW);
         let html = '';
-        issuesToShow.forEach(function(issue, idx) {
+        if (issuesToShow.length > MAX_SHOW) {
+            html += `<p style="color:#718096;font-size:0.85rem;margin-bottom:0.75rem;">Showing first ${MAX_SHOW} of ${issuesToShow.length} in this category.</p>`;
+        }
+        slice.forEach(function(issue, idx) {
             const severityColor = issue.severity === 'critical' ? '#f56565' :
                                 issue.severity === 'warning' ? '#ed8936' : '#4299e1';
             const severityIcon = issue.severity === 'critical' ? '🚨' :
@@ -435,18 +1031,47 @@ $(document).ready(function() {
         $('#issuesContent').html(html);
     };
 
-    function displayFullReport(report) {
-        if (!report) return;
+    function buildUnifiedReportText(report, scriptResult) {
+        const sections = [];
+        const scriptText = formatScriptOutput(scriptResult);
+        const presetLabel = (scriptResult && scriptResult.preset_label) ? scriptResult.preset_label : 'Quick Health Check';
 
+        sections.push('# OpenShift Must-Gather Diagnostic Report');
+        sections.push('');
+
+        if (scriptText) {
+            sections.push('## Focused Scripts: ' + presetLabel);
+            sections.push('');
+            sections.push(scriptText);
+            sections.push('');
+            sections.push('-'.repeat(72));
+            sections.push('');
+        }
+
+        if (report) {
+            sections.push('## Full Analysis Report');
+            sections.push('');
+            sections.push(report);
+        }
+
+        return sections.join('\n').trim();
+    }
+
+    function displayUnifiedReport(report, scriptResult) {
+        const unifiedText = buildUnifiedReportText(report, scriptResult);
+        if (!unifiedText) return;
+
+        const presetLabel = (scriptResult && scriptResult.preset_label) ? scriptResult.preset_label : 'Quick Health Check';
         let html = `
             <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3 style="margin: 0; color: #2d3748;">📄 Full Analysis Report</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <h3 style="margin: 0; color: #2d3748;">📄 Complete Diagnostic Report</h3>
+                    <span style="font-size: 0.8rem; color: #718096;">Focused Scripts (${escapeHtml(presetLabel)}) + Full Analysis</span>
                     <button onclick="copyReport()" class="btn btn-primary" style="padding: 0.5rem 1rem;">
                         <i class="fas fa-copy"></i> Copy Report
                     </button>
                 </div>
-                <pre id="fullReportContent" style="background: #1a202c; color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; overflow-x: auto; max-height: 600px; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(report)}</pre>
+                <pre id="fullReportContent" class="mg-report-pre mg-scroll-panel">${escapeHtml(unifiedText)}</pre>
             </div>
         `;
 
@@ -578,6 +1203,19 @@ $(document).ready(function() {
 
 .btn.btn-primary:hover {
     opacity: 0.9;
+}
+
+.btn-preset {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #805ad5;
+    border-radius: 0.375rem;
+    background: white;
+    color: #805ad5;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.btn-preset:hover {
+    background: #faf5ff;
 }
 
 .no-issues {

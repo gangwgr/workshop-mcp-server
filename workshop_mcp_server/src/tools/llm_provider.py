@@ -416,18 +416,8 @@ Format clearly with markdown headers and code blocks for commands."""
 
 
 def analyze_mustgather(summary: str) -> Optional[str]:
-    kb_context = _get_kb_context("OpenShift must-gather troubleshooting degraded operators failures")
-
-    system = """You are an expert OpenShift support engineer analyzing must-gather bundles.
-Identify issues, correlate events, and provide actionable recommendations.
-Focus on: degraded operators, failing pods, certificate issues, network problems, storage issues."""
-
-    parts = []
-    if kb_context:
-        parts.append(f"Reference documentation:\n{kb_context}\n\n---\n")
-    parts.append(f"Analyze this must-gather summary and provide detailed findings:\n\n{summary}")
-    prompt = "\n".join(parts)
-    return generate(prompt, system=system)
+    """LLM enhancement disabled — must-gather is offline-only; live runbooks are not appropriate."""
+    return None
 
 
 def generate_pr_review(diff: str, title: str = "", description: str = "") -> Optional[str]:

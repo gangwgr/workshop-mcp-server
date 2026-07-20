@@ -5,8 +5,8 @@
 {% block content %}
 <div class="container">
     <div class="page-header">
-        <h1><i class="fas fa-bug"></i> OpenShift Cluster Debugger + Test Automation</h1>
-        <p>AI-powered cluster diagnostics with automated test case generation</p>
+        <h1><i class="fas fa-bug"></i> OpenShift Cluster Debugger</h1>
+        <p>AI-powered cluster diagnostics and focused live <code>oc</code> triage workflows</p>
     </div>
 
     <!-- LLM Selector -->
@@ -19,8 +19,18 @@
     </div>
 
     <div class="review-container">
+        <div style="display:flex;gap:0.5rem;margin-bottom:1rem;border-bottom:2px solid #e2e8f0;padding-bottom:0.5rem;">
+            <button type="button" class="cd-tab active" data-tab="ai" style="padding:0.5rem 1rem;border:none;background:#4299e1;color:white;border-radius:0.375rem 0.375rem 0 0;cursor:pointer;font-weight:600;">
+                <i class="fas fa-robot"></i> AI Debug & Analyze
+            </button>
+            <button type="button" class="cd-tab" data-tab="oc" style="padding:0.5rem 1rem;border:none;background:#edf2f7;color:#4a5568;border-radius:0.375rem 0.375rem 0 0;cursor:pointer;font-weight:600;">
+                <i class="fas fa-terminal"></i> Focused oc Triage
+            </button>
+        </div>
+
+        <div id="tab-ai" class="cd-tab-panel">
         <div class="review-form">
-            <h3>Describe Cluster Issue</h3>
+            <h3>AI Debug & Analyze</h3>
             <form id="debugForm">
                 <div class="form-group">
                     <label for="issue_description">Issue Description *</label>
@@ -69,6 +79,75 @@
                 </button>
             </form>
         </div>
+        </div><!-- /tab-ai -->
+
+        <div id="tab-oc" class="cd-tab-panel" style="display:none;">
+        <div class="review-form">
+            <h3>Focused oc Triage</h3>
+            <p style="color:#718096;font-size:0.875rem;margin-bottom:1rem;">
+                Runs predefined <code>oc</code> workflows against your live cluster with AI-powered analysis of the results.
+            </p>
+
+            <div style="margin-bottom:1rem;padding:1rem;background:#f7fafc;border-radius:0.5rem;border-left:3px solid #4299e1;">
+                <div class="form-group">
+                    <label for="oc_path_triage">OC CLI Path</label>
+                    <input type="text" id="oc_path_triage" class="form-control" placeholder="/usr/local/bin/oc (default: oc)">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="kubeconfig_path_triage">Kubeconfig Path</label>
+                    <input type="text" id="kubeconfig_path_triage" class="form-control" placeholder="~/.kube/config">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Quick Presets</label>
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                    <button type="button" class="btn btn-preset" data-preset="quick_health">Quick Health Check</button>
+                    <button type="button" class="btn btn-preset" data-preset="apiserver_not_responding">API Not Responding</button>
+                    <button type="button" class="btn btn-preset" data-preset="apiserver_full_debug">API Server Full Debug</button>
+                    <button type="button" class="btn btn-preset" data-preset="openshift_apiserver_debug">OpenShift API Server</button>
+                    <button type="button" class="btn btn-preset" data-preset="control_plane_issues">Control Plane</button>
+                    <button type="button" class="btn btn-preset" data-preset="network_troubleshoot">Network</button>
+                    <button type="button" class="btn btn-preset" data-preset="upgrade_debug">Upgrade Debug</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="workflow_select">Or run a single workflow</label>
+                <select id="workflow_select" class="form-control">
+                    <option value="">Loading workflows...</option>
+                </select>
+            </div>
+
+            <div id="workflowOptions" style="display:none;margin-bottom:1rem;padding:0.75rem;background:#f7fafc;border-radius:0.375rem;">
+                <div id="opt_wf_namespace" class="form-group" style="display:none;margin-bottom:0.5rem;">
+                    <label for="wf_namespace">Namespace</label>
+                    <input type="text" id="wf_namespace" class="form-control" placeholder="e.g. openshift-etcd">
+                </div>
+                <div id="opt_wf_component" class="form-group" style="display:none;margin-bottom:0.5rem;">
+                    <label for="wf_component">Pod / Component</label>
+                    <input type="text" id="wf_component" class="form-control" placeholder="e.g. etcd-master-0">
+                </div>
+                <div id="opt_wf_operator" class="form-group" style="display:none;margin-bottom:0.5rem;">
+                    <label for="wf_operator">Operator name</label>
+                    <input type="text" id="wf_operator" class="form-control" placeholder="e.g. etcd (for openshift-etcd)">
+                </div>
+            </div>
+
+            <button type="button" id="runWorkflowBtn" class="btn btn-primary btn-lg">
+                <i class="fas fa-play"></i> Run Workflow
+            </button>
+
+            <div id="workflowResults" style="display:none;margin-top:1.5rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <h3 style="margin:0;" id="workflowResultsTitle">oc Output</h3>
+                    <button type="button" class="btn btn-primary" onclick="copyWorkflowOutput()"><i class="fas fa-copy"></i> Copy</button>
+                </div>
+                <pre id="workflowOutput" style="background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;max-height:70vh;font-size:0.8rem;line-height:1.45;white-space:pre-wrap;"></pre>
+                <div id="triageLlmAnalysis" style="margin-top:1.5rem;"></div>
+            </div>
+        </div>
+        </div><!-- /tab-oc -->
 
         <div id="debugResults" class="review-results" style="display: none;">
             <h2><i class="fas fa-chart-line"></i> Diagnostic Results</h2>
@@ -87,6 +166,20 @@
 
             <!-- Suggested Commands -->
             <div id="suggestedCommands" style="margin-top: 1.5rem;"></div>
+
+            <!-- Generate Test Case (on demand) -->
+            <div id="testCaseSection" style="margin-top: 1.5rem; display: none;">
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0; color: #2d3748;">🧪 Test Case Generator</h3>
+                        <button id="btnGenerateTest" onclick="generateTestCase()" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                            <i class="fas fa-flask"></i> Generate Test Case
+                        </button>
+                    </div>
+                    <p style="color: #718096; font-size: 0.85rem; margin: 0;">Click to generate a Go/Ginkgo test case that validates this issue is resolved.</p>
+                    <div id="testCaseOutput" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
 
             <!-- Chat Window -->
             <div id="chatWindow" style="margin-top: 2rem;">
@@ -142,10 +235,167 @@
 {% endblock %}
 
 {% block extra_js %}
+<style>
+.btn-preset {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #4299e1;
+    border-radius: 0.375rem;
+    background: white;
+    color: #4299e1;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.btn-preset:hover { background: #ebf8ff; }
+</style>
 <script>
 $(document).ready(function() {
     // Store diagnostic context globally for chat
     window.diagnosticContext = null;
+    window.workflowCatalog = [];
+
+    // Sync oc/kubeconfig between tabs
+    $('#oc_path').on('input', function() { $('#oc_path_triage').val($(this).val()); });
+    $('#kubeconfig_path').on('input', function() { $('#kubeconfig_path_triage').val($(this).val()); });
+    $('#oc_path_triage').on('input', function() { $('#oc_path').val($(this).val()); });
+    $('#kubeconfig_path_triage').on('input', function() { $('#kubeconfig_path').val($(this).val()); });
+    $('#namespace').on('input', function() { $('#wf_namespace').val($(this).val()); });
+    $('#component').on('input', function() { $('#wf_component').val($(this).val()); });
+    $('#wf_namespace').on('input', function() { $('#namespace').val($(this).val()); });
+    $('#wf_component').on('input', function() { $('#component').val($(this).val()); });
+
+    $('.cd-tab').on('click', function() {
+        const tab = $(this).data('tab');
+        $('.cd-tab').css({background:'#edf2f7', color:'#4a5568'}).removeClass('active');
+        $(this).css({background:'#4299e1', color:'white'}).addClass('active');
+        $('.cd-tab-panel').hide();
+        $('#tab-' + tab).show();
+    });
+
+    $.get('/api/cluster-debugger-workflows', function(data) {
+        if (data.status !== 'success') return;
+        window.workflowCatalog = data.workflows || [];
+        const $sel = $('#workflow_select').empty();
+        $sel.append($('<option>').val('').text('-- Select workflow --'));
+        window.workflowCatalog.forEach(function(w) {
+            $sel.append($('<option>').val(w.id).text(w.label + ' — ' + w.description));
+        });
+    });
+
+    $('#workflow_select').on('change', function() {
+        const id = $(this).val();
+        const wf = window.workflowCatalog.find(w => w.id === id);
+        $('#workflowOptions').toggle(!!wf);
+        $('#opt_wf_namespace').toggle(wf && wf.options.indexOf('namespace') >= 0);
+        $('#opt_wf_component').toggle(wf && wf.options.indexOf('component') >= 0);
+        $('#opt_wf_operator').toggle(wf && wf.options.indexOf('operator') >= 0);
+    });
+
+    function workflowPayload(extra) {
+        return Object.assign({
+            oc_path: $('#oc_path_triage').val().trim() || null,
+            kubeconfig_path: $('#kubeconfig_path_triage').val().trim() || null,
+            namespace: $('#wf_namespace').val().trim() || null,
+            component: $('#wf_component').val().trim() || null,
+            operator: $('#wf_operator').val().trim() || null,
+        }, extra || {});
+    }
+
+    $('.btn-preset').on('click', function() {
+        runWorkflowRequest(workflowPayload({ preset: $(this).data('preset') }));
+    });
+
+    $('#runWorkflowBtn').on('click', function() {
+        const workflowId = $('#workflow_select').val();
+        if (!workflowId) { alert('Select a workflow'); return; }
+        runWorkflowRequest(workflowPayload({ workflow_id: workflowId }));
+    });
+
+    function runWorkflowRequest(payload) {
+        $('#loading').show();
+        $('#loadingText').text('Running oc diagnostic workflow...');
+        $('#workflowResults').hide();
+        $.ajax({
+            url: '/api/run-cluster-debugger-workflow',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            success: displayWorkflowResults,
+            error: function(xhr) { displayWorkflowResults(xhr.responseJSON || { status: 'error', error: 'Request failed' }); },
+            complete: function() { $('#loading').hide(); }
+        });
+    }
+
+    function displayWorkflowResults(result) {
+        $('#workflowResults').show();
+        $('#triageLlmAnalysis').html('');
+        let ocOutput = '';
+        let workflowLabel = '';
+
+        if (result.preset && result.results) {
+            workflowLabel = result.preset_label || result.preset;
+            $('#workflowResultsTitle').text('Preset: ' + workflowLabel);
+            ocOutput = result.output || result.error || 'No output';
+            $('#workflowOutput').text(ocOutput);
+            window.diagnosticContext = { mode: 'oc_triage', preset: result.preset, oc_output: ocOutput };
+        } else if (result.status === 'error') {
+            $('#workflowResultsTitle').text('Error');
+            $('#workflowOutput').text(result.error || 'Unknown error');
+            $('html, body').animate({ scrollTop: $('#workflowResults').offset().top - 20 }, 400);
+            return;
+        } else {
+            workflowLabel = result.workflow_label || 'oc Output';
+            $('#workflowResultsTitle').text('Workflow: ' + workflowLabel);
+            ocOutput = result.output || result.error || 'No output';
+            $('#workflowOutput').text(ocOutput);
+            window.diagnosticContext = { mode: 'oc_triage', workflow_id: result.workflow_id, oc_output: ocOutput };
+        }
+
+        $('html, body').animate({ scrollTop: $('#workflowResults').offset().top - 20 }, 400);
+
+        // Run LLM analysis on the triage output
+        if (ocOutput && ocOutput.length > 20) {
+            runTriageLlmAnalysis(workflowLabel, ocOutput);
+        }
+    }
+
+    function runTriageLlmAnalysis(workflowLabel, ocOutput) {
+        $('#triageLlmAnalysis').html(`
+            <div style="padding:1rem;background:#faf5ff;border-radius:0.5rem;border:1px solid #e9d8fd;">
+                <p style="margin:0;color:#553c9a;"><i class="fas fa-spinner fa-spin"></i> AI analyzing the output...</p>
+            </div>
+        `);
+
+        $.ajax({
+            url: '/api/analyze-triage-output',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                workflow_label: workflowLabel,
+                oc_output: ocOutput.substring(0, 25000)
+            }),
+            success: function(resp) {
+                if (resp.status === 'success' && resp.analysis) {
+                    let html = `
+                        <div style="padding:1.5rem;background:white;border-radius:0.5rem;border:2px solid #805ad5;">
+                            <h4 style="margin-top:0;color:#553c9a;">🧠 AI Analysis</h4>
+                            <div style="padding:1rem;background:#faf5ff;border-radius:0.375rem;">
+                                ${formatMarkdown(resp.analysis)}
+                            </div>
+                        </div>`;
+                    $('#triageLlmAnalysis').html(html);
+                } else {
+                    $('#triageLlmAnalysis').html('');
+                }
+            },
+            error: function() {
+                $('#triageLlmAnalysis').html('');
+            }
+        });
+    }
+
+    window.copyWorkflowOutput = function() {
+        navigator.clipboard.writeText($('#workflowOutput').text()).then(() => alert('Copied to clipboard'));
+    };
 
     $('#debugForm').on('submit', function(e) {
         e.preventDefault();
@@ -182,18 +432,91 @@ $(document).ready(function() {
 
     function formatMarkdown(text) {
         if (!text) return '';
-        let html = text;
-        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.85rem;"><code>$2</code></pre>');
-        html = html.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 6px;border-radius:3px;font-size:0.85em;">$1</code>');
-        html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
-        html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
-        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-        html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
-        html = html.replace(/\n\n/g, '</p><p>');
-        html = html.replace(/\n/g, '<br>');
-        return '<p>' + html + '</p>';
+
+        // Split by code blocks first to protect them
+        let parts = text.split(/(```[\s\S]*?```)/g);
+        let html = parts.map(part => {
+            if (part.startsWith('```')) {
+                let code = part.replace(/```(\w*)\n?/, '').replace(/```$/, '');
+                return `<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.8rem;line-height:1.5;margin:0.75rem 0;"><code>${escapeHtml(code.trim())}</code></pre>`;
+            }
+
+            // Process line by line for better control
+            let lines = part.split('\n');
+            let result = [];
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+
+                // oc/kubectl commands → terminal style
+                if (/^oc\s/.test(line.trim()) || /^kubectl\s/.test(line.trim())) {
+                    result.push(`<code style="display:block;background:#1a202c;color:#68d391;padding:0.5rem 0.75rem;border-radius:0.375rem;margin:0.4rem 0;font-size:0.8rem;white-space:pre-wrap;">$ ${escapeHtml(line.trim())}</code>`);
+                    continue;
+                }
+
+                // Shell comments (# not followed by another #)
+                if (/^#[^#]/.test(line.trim())) {
+                    result.push(`<p style="color:#718096;font-style:italic;margin:0.5rem 0;font-size:0.85rem;">${escapeHtml(line.trim())}</p>`);
+                    continue;
+                }
+
+                // Headers
+                if (/^####\s/.test(line)) { result.push(`<h5 style="margin:0.75rem 0 0.4rem;color:#2d3748;font-size:0.9rem;">${escapeHtml(line.replace(/^####\s/, ''))}</h5>`); continue; }
+                if (/^###\s/.test(line)) { result.push(`<h4 style="margin:1rem 0 0.4rem;color:#2d3748;">${escapeHtml(line.replace(/^###\s/, ''))}</h4>`); continue; }
+                if (/^##\s/.test(line)) { result.push(`<h3 style="margin:1rem 0 0.4rem;color:#1a202c;">${escapeHtml(line.replace(/^##\s/, ''))}</h3>`); continue; }
+                if (/^#\s/.test(line)) { result.push(`<h2 style="margin:1rem 0 0.4rem;color:#1a202c;">${escapeHtml(line.replace(/^#\s/, ''))}</h2>`); continue; }
+
+                let escaped = escapeHtml(line);
+
+                // Numbered section headers: "1. **Title**" or "1. Title"
+                let numBold = escaped.match(/^(\d+)\.\s+\*\*(.+?)\*\*(.*)/);
+                if (numBold) {
+                    result.push(`<div style="margin:1rem 0 0.3rem;font-size:1rem;font-weight:600;color:#2d3748;">${numBold[1]}. ${numBold[2]}${numBold[3]}</div>`);
+                    continue;
+                }
+
+                // Regular numbered items
+                let numItem = escaped.match(/^(\d+)\.\s+(.+)/);
+                if (numItem) {
+                    result.push(`<div style="margin:0.3rem 0;padding-left:1.25rem;">${numItem[1]}. ${applyInline(numItem[2])}</div>`);
+                    continue;
+                }
+
+                // Bullet items
+                if (/^[\-\*]\s/.test(escaped)) {
+                    let content = escaped.replace(/^[\-\*]\s/, '');
+                    result.push(`<div style="margin:0.25rem 0;padding-left:1.25rem;">• ${applyInline(content)}</div>`);
+                    continue;
+                }
+
+                // Empty line → spacing
+                if (line.trim() === '') {
+                    result.push('<div style="height:0.5rem;"></div>');
+                    continue;
+                }
+
+                // Description lines before commands (plain text without formatting)
+                // Check if next line is an oc command — style this as a label
+                let nextLine = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+                if (/^oc\s|^kubectl\s/.test(nextLine) && !escaped.includes('**')) {
+                    result.push(`<p style="margin:0.6rem 0 0.2rem;color:#4a5568;font-size:0.85rem;font-weight:500;">${applyInline(escaped)}</p>`);
+                    continue;
+                }
+
+                // Regular text
+                result.push(`<p style="margin:0.3rem 0;">${applyInline(escaped)}</p>`);
+            }
+            return result.join('');
+        }).join('');
+
+        return html;
+    }
+
+    function applyInline(text) {
+        // Bold
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // Inline code
+        text = text.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 5px;border-radius:3px;font-size:0.85em;color:#553c9a;">$1</code>');
+        return text;
     }
 
     function displayResults(result) {
@@ -205,41 +528,37 @@ $(document).ready(function() {
         // Store diagnostic context for chat
         window.diagnosticContext = result;
 
-        // Handle LLM-powered analysis
-        if (result.mode === 'llm' && result.llm_analysis) {
-            let html = `
-                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid #805ad5;">
-                    <h3 style="margin-top: 0; color: #2d3748;">🤖 AI-Powered Cluster Analysis (llama3)</h3>
-                    <p style="color: #718096; font-size: 0.875rem;">Issue: ${escapeHtml(result.issue_description || '')}</p>
-                </div>
-                <div style="margin-top: 1.5rem; padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
-                    ${formatMarkdown(result.llm_analysis)}
-                </div>
-            `;
-            $('#validationResults').html('');
-            $('#issueAnalysis').html(html);
-            $('#diagnosticSummary').html('');
-            $('#fixRecommendations').html('');
-            $('#suggestedCommands').html('');
-            $('#debugResults').show();
-            $('html, body').animate({ scrollTop: $('#debugResults').offset().top - 20 }, 500);
-            return;
-        }
-
         // Display validation results
         displayValidationResults(result.validation_results);
 
-        // Display issue analysis
-        displayIssueAnalysis(result.issue_analysis);
-
-        // Display diagnostic summary
+        // Display live diagnostic data
         displayDiagnosticSummary(result.diagnostics);
+
+        // Display LLM analysis of the REAL diagnostic output
+        if (result.llm_analysis) {
+            let modeLabel = result.mode === 'live_cluster' ? 'Live Cluster Data' : 'Offline Analysis';
+            let html = `
+                <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border: 2px solid #805ad5;">
+                    <h3 style="margin-top: 0; color: #553c9a;">🧠 AI Analysis of ${escapeHtml(modeLabel)}</h3>
+                    <p style="color: #718096; font-size: 0.85rem; margin-bottom: 1rem;">Issue: ${escapeHtml(result.issue_description || '')}</p>
+                    <div style="padding: 1rem; background: #faf5ff; border-radius: 0.375rem; border: 1px solid #e9d8fd;">
+                        ${formatMarkdown(result.llm_analysis)}
+                    </div>
+                </div>`;
+            $('#issueAnalysis').html(html);
+        } else {
+            displayIssueAnalysis(result.issue_analysis);
+        }
 
         // Display fix recommendations
         displayFixRecommendations(result.fix_recommendations);
 
         // Display suggested commands
         displaySuggestedCommands(result.suggested_commands);
+
+        // Show the test case section (user can click to generate)
+        $('#testCaseSection').show();
+        $('#testCaseOutput').html('');
 
         $('#debugResults').show();
 
@@ -329,40 +648,67 @@ $(document).ready(function() {
 
         const hasCritical = diagnostics.findings && diagnostics.findings.some(f => f.severity === 'critical');
         const borderColor = hasCritical ? '#f56565' : '#48bb78';
+        const statusIcon = hasCritical ? '🔴' : '🟢';
 
         let html = `
             <div style="padding: 1.5rem; background: white; border-radius: 0.5rem; border-left: 4px solid ${borderColor};">
-                <h3 style="margin-top: 0; color: #2d3748;"><i class="fas fa-stethoscope"></i> Diagnostic Summary</h3>
-                <pre style="background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; white-space: pre-wrap; font-size: 0.875rem; line-height: 1.6;">${escapeHtml(diagnostics.summary || 'No summary available')}</pre>
+                <h3 style="margin-top: 0; color: #2d3748;">${statusIcon} Live Cluster Diagnostics</h3>
         `;
 
         if (diagnostics.findings && diagnostics.findings.length > 0) {
-            html += `<h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; color: #2d3748;">Findings:</h4>`;
-
+            html += `<h4 style="margin-top: 1rem; margin-bottom: 0.75rem; color: #2d3748;">Findings from Live Cluster:</h4>`;
             diagnostics.findings.forEach(function(finding) {
                 const findingColor = finding.severity === 'critical' ? '#f56565' : '#ed8936';
                 const findingIcon = finding.severity === 'critical' ? '🚨' : '⚠️';
-
                 html += `
-                    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f7fafc; border-left: 3px solid ${findingColor}; border-radius: 0.375rem;">
-                        <p style="margin: 0; color: #2d3748;">
+                    <div style="margin-bottom: 0.5rem; padding: 0.6rem; background: #f7fafc; border-left: 3px solid ${findingColor}; border-radius: 0.375rem;">
+                        <p style="margin: 0; color: #2d3748; font-size: 0.9rem;">
                             ${findingIcon} <strong>${finding.severity.toUpperCase()}:</strong> ${escapeHtml(finding.finding)}
                         </p>
                     </div>
                 `;
             });
+        } else {
+            html += `<p style="color: #38a169; margin-top: 0.5rem;">✅ No issues detected from live cluster commands.</p>`;
+        }
+
+        // Show raw command outputs
+        if (diagnostics.raw_output) {
+            html += `<h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; color: #2d3748;"><i class="fas fa-terminal"></i> Live Command Outputs:</h4>`;
+            for (const [checkName, checkData] of Object.entries(diagnostics.raw_output)) {
+                let rawText = '';
+                if (typeof checkData === 'string') {
+                    rawText = checkData;
+                } else if (checkData && checkData.raw_output) {
+                    rawText = checkData.raw_output;
+                } else if (checkData && checkData.recent_events) {
+                    // Events: show formatted event text
+                    rawText = checkData.recent_events.replace(/\\n/g, '\n');
+                } else if (checkData && typeof checkData === 'object') {
+                    // Skip objects with no meaningful text output (like error_count only)
+                    let keys = Object.keys(checkData).filter(k => k !== 'error_count' && k !== 'warning_count');
+                    if (keys.length === 0) continue;
+                    rawText = JSON.stringify(checkData, null, 2);
+                }
+                if (rawText && rawText.trim()) {
+                    html += `
+                        <div style="margin-bottom: 1rem;">
+                            <p style="margin: 0 0 0.25rem; font-weight: 600; color: #4a5568; font-size: 0.85rem;">$ oc check: ${escapeHtml(checkName.replace(/_/g, ' '))}</p>
+                            <pre style="background: #1a202c; color: #e2e8f0; padding: 0.75rem; border-radius: 0.375rem; white-space: pre-wrap; font-size: 0.8rem; line-height: 1.5; max-height: 200px; overflow-y: auto;">${escapeHtml(rawText.substring(0, 2000))}</pre>
+                        </div>`;
+                }
+            }
         }
 
         if (diagnostics.checks_performed && diagnostics.checks_performed.length > 0) {
             html += `
-                <p style="margin-top: 1rem; color: #718096; font-size: 0.875rem;">
-                    <strong>Checks Performed:</strong> ${diagnostics.checks_performed.join(', ')}
+                <p style="margin-top: 1rem; color: #718096; font-size: 0.85rem;">
+                    <strong>Commands Executed:</strong> ${diagnostics.checks_performed.join(', ')}
                 </p>
             `;
         }
 
         html += `</div>`;
-
         $('#diagnosticSummary').html(html);
     }
 
@@ -422,6 +768,71 @@ $(document).ready(function() {
     function escapeHtml(text) {
         return $('<div>').text(text).html();
     }
+
+    window.generateTestCase = function() {
+        const data = {
+            issue_description: $('#issue_description').val(),
+            namespace: $('#namespace').val() || null,
+            component: $('#component').val() || null
+        };
+
+        if (!data.issue_description || !data.issue_description.trim()) {
+            $('#testCaseOutput').html('<p style="color: #e53e3e;">Please enter an issue description first.</p>');
+            return;
+        }
+
+        $('#btnGenerateTest').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Generating...');
+        $('#testCaseOutput').html('<p style="color: #718096;">Generating test case with AI...</p>');
+
+        $.ajax({
+            url: '/api/generate-cluster-test',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            timeout: 60000,
+            success: function(result) {
+                if (result.status === 'success' && result.test_case) {
+                    let tc = result.test_case;
+                    let code = tc.go_code || tc.code || JSON.stringify(tc, null, 2);
+                    let html = `
+                        <div style="margin-top: 1rem;">
+                            <h4 style="color: #2d3748;">📝 ${escapeHtml(tc.test_name || 'Generated Test')}</h4>
+                            <p style="color: #718096; font-size: 0.85rem;">${escapeHtml(tc.description || '')}</p>
+                            <pre style="background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 0.375rem; overflow-x: auto; font-size: 0.8rem; max-height: 600px;"><code>${escapeHtml(code)}</code></pre>
+                            <div style="margin-top: 0.5rem;">
+                                <button onclick="copyToClipboard(this)" class="btn btn-sm btn-outline-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">
+                                    <i class="fas fa-copy"></i> Copy Test Code
+                                </button>
+                            </div>`;
+                    if (tc.shell_script) {
+                        html += `
+                            <details style="margin-top: 1rem;">
+                                <summary style="cursor: pointer; color: #4a5568; font-weight: 600;">📜 Shell Script Version</summary>
+                                <pre style="background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 0.375rem; overflow-x: auto; font-size: 0.8rem; margin-top: 0.5rem;"><code>${escapeHtml(tc.shell_script)}</code></pre>
+                            </details>`;
+                    }
+                    html += `</div>`;
+                    $('#testCaseOutput').html(html);
+                } else {
+                    $('#testCaseOutput').html('<p style="color: #e53e3e;">' + (result.error || 'No test case generated. Try providing more details.') + '</p>');
+                }
+            },
+            error: function(xhr) {
+                $('#testCaseOutput').html('<p style="color: #e53e3e;">Failed to generate test case: ' + (xhr.responseJSON?.error || 'Request timed out or server error') + '</p>');
+            },
+            complete: function() {
+                $('#btnGenerateTest').prop('disabled', false).html('<i class="fas fa-flask"></i> Generate Test Case');
+            }
+        });
+    };
+
+    window.copyToClipboard = function(btn) {
+        const code = $(btn).closest('div').prev('pre').find('code').text();
+        navigator.clipboard.writeText(code).then(() => {
+            $(btn).html('<i class="fas fa-check"></i> Copied!');
+            setTimeout(() => $(btn).html('<i class="fas fa-copy"></i> Copy Test Code'), 2000);
+        });
+    };
 
     // Chat functionality
     $('#chatForm').on('submit', function(e) {

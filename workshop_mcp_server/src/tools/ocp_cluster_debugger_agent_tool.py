@@ -58,50 +58,85 @@ class OCPClusterDebuggerAgent:
         try:
             logger.info(f"Starting cluster debug for issue: {issue_description}")
 
-            if oc_path:
-                self.oc_path = oc_path
-            if kubeconfig_path:
-                self.kubeconfig_path = kubeconfig_path
+            if oc_path and oc_path.strip():
+                import os
+                # If user passed a directory instead of binary, try to find oc inside
+                if os.path.isdir(oc_path.strip()):
+                    logger.warning(f"oc_path '{oc_path}' is a directory, using default 'oc'")
+                else:
+                    self.oc_path = oc_path.strip()
+            if kubeconfig_path and kubeconfig_path.strip():
+                self.kubeconfig_path = kubeconfig_path.strip()
 
-            # Try LLM-powered debugging first for enhanced analysis
-            try:
-                from workshop_mcp_server.src.tools.llm_provider import debug_cluster_issue as llm_debug, is_available
-                if is_available():
-                    llm_result = llm_debug(
-                        issue=issue_description,
-                        namespace=namespace or "",
-                        component=component or "",
-                    )
-                    if llm_result:
-                        logger.info("LLM-enhanced cluster debug completed")
-                        return {
-                            "status": "success",
-                            "mode": "llm",
-                            "issue_description": issue_description,
-                            "llm_analysis": llm_result,
-                            "message": "AI-powered cluster debugging (llama3)",
-                            "timestamp": datetime.now().isoformat(),
-                        }
-            except Exception as llm_err:
-                logger.warning(f"LLM debug unavailable, using built-in analysis: {llm_err}")
-
-            # Validate inputs
+            # Step 1: Validate cluster access
             validation = self._validate_inputs(namespace, component)
 
-            # Analyze the issue description
+            # Step 2: Analyze the issue description
             issue_analysis = self._analyze_issue_description(issue_description)
 
-            # Run diagnostics based on issue type
+            # Step 3: Run REAL diagnostics (oc commands) against the live cluster
             diagnostics = self._run_diagnostics(
                 issue_analysis, namespace, component
             )
 
-            # Generate fix recommendations
+            # Step 4: Use LLM to analyze the REAL diagnostic output
+            llm_analysis = None
+            try:
+                from workshop_mcp_server.src.tools.llm_provider import generate, is_available
+                if is_available():
+                    diag_output = diagnostics.get("summary", "")
+                    raw_output = diagnostics.get("raw_output", {})
+
+                    # Build live data from actual command outputs
+                    live_data_parts = []
+                    for check_name, check_data in raw_output.items():
+                        if isinstance(check_data, dict):
+                            if check_data.get("raw_output"):
+                                live_data_parts.append(f"=== {check_name} ===\n{check_data['raw_output']}")
+                            elif check_data.get("output"):
+                                live_data_parts.append(f"=== {check_name} ===\n{check_data['output']}")
+                            else:
+                                import json as _json
+                                live_data_parts.append(f"=== {check_name} ===\n{_json.dumps(check_data, indent=2, default=str)[:1000]}")
+                    live_data = "\n\n".join(live_data_parts) if live_data_parts else diag_output
+
+                    # Include findings
+                    findings = diagnostics.get("findings", [])
+                    if findings:
+                        findings_text = "\n".join([f"- [{f.get('severity','')}] {f.get('finding','')}" for f in findings])
+                        live_data += f"\n\nFINDINGS:\n{findings_text}"
+
+                    llm_prompt = f"""Analyze these LIVE cluster diagnostic results for issue: "{issue_description}"
+
+LIVE CLUSTER OUTPUT:
+{live_data[:4000]}
+
+CLUSTER ACCESS: {'Connected' if validation.get('cluster_accessible') else 'Not connected'}
+NAMESPACE: {namespace or 'not specified'}
+COMPONENT: {component or 'not specified'}
+
+Based on the ACTUAL cluster output above:
+1. What is the current state? (interpret the real data)
+2. Is there a problem? If yes, what exactly?
+3. Root cause based on the evidence
+4. Specific fix commands to resolve this"""
+
+                    llm_system = """You are an OpenShift SRE analyzing LIVE cluster diagnostic output.
+The user ran real oc commands and this is the actual output. Analyze it directly.
+Do NOT generate generic suggestions — interpret the REAL data shown.
+If the output shows pods Running, say they're healthy.
+If output shows errors, explain the specific errors found."""
+
+                    llm_analysis = generate(llm_prompt, system=llm_system)
+            except Exception as llm_err:
+                logger.warning(f"LLM analysis of diagnostics failed: {llm_err}")
+
+            # Step 5: Generate fix recommendations
             fix_recommendations = self._generate_fix_recommendations(
                 issue_analysis, diagnostics
             )
 
-            # Generate test case if requested
+            # Step 6: Generate test case ONLY if requested
             test_case = None
             if include_test_case:
                 test_case = self._generate_test_case(
@@ -111,11 +146,13 @@ class OCPClusterDebuggerAgent:
             # Build comprehensive response
             result = {
                 "status": "success",
+                "mode": "live_cluster" if validation.get("cluster_accessible") else "offline",
                 "issue_description": issue_description,
                 "diagnostic_summary": diagnostics.get("summary", ""),
                 "issue_analysis": issue_analysis,
                 "validation_results": validation,
                 "diagnostics": diagnostics,
+                "llm_analysis": llm_analysis,
                 "fix_recommendations": fix_recommendations,
                 "test_case": test_case,
                 "suggested_commands": self._get_suggested_commands(
@@ -255,9 +292,9 @@ class OCPClusterDebuggerAgent:
 
         # Identify affected components
         components = {
-            "api": ["api", "apiserver", "kube-apiserver"],
+            "api": ["apiserver", "kube-apiserver", "api server", "api-server"],
             "etcd": ["etcd"],
-            "operator": ["operator", "cvo", "cluster-version"],
+            "operator": ["cvo", "cluster-version"],
             "node": ["node", "worker", "master", "control plane"],
             "network": ["sdn", "ovn", "network", "dns", "route"],
             "storage": ["storage", "csi", "volume", "pvc"],
@@ -272,6 +309,16 @@ class OCPClusterDebuggerAgent:
                 analysis["keywords"].extend(
                     [kw for kw in keywords if kw in issue_lower]
                 )
+
+        # If the query is about operators in general (e.g., "any operator degraded"),
+        # don't add "operator" as a specific component — treat as a general query
+        # so ALL operators are shown unfiltered
+        if "operator" in issue_lower and "operator" not in analysis["affected_components"]:
+            # Only add "operator" as component if a SPECIFIC operator is mentioned
+            specific_operators = ["kube-scheduler", "ingress", "dns", "console", "image-registry",
+                                  "machine-config", "openshift-apiserver", "kube-controller"]
+            if any(op in issue_lower for op in specific_operators):
+                analysis["affected_components"].append("operator")
 
         return analysis
 
@@ -292,31 +339,79 @@ class OCPClusterDebuggerAgent:
         issue_type = issue_analysis["issue_type"]
         affected_components = issue_analysis["affected_components"]
 
+        # Determine the focused namespace for scoped checks
+        focused_namespace = namespace
+        if not focused_namespace:
+            if "etcd" in affected_components:
+                focused_namespace = "openshift-etcd"
+            elif "api" in affected_components:
+                focused_namespace = "openshift-kube-apiserver"
+            elif "authentication" in affected_components:
+                focused_namespace = "openshift-authentication"
+            elif "network" in affected_components:
+                focused_namespace = "openshift-sdn"
+            elif "monitoring" in affected_components:
+                focused_namespace = "openshift-monitoring"
+
         try:
-            # Always check cluster operators
-            co_check = self._check_cluster_operators()
-            diagnostics["checks_performed"].append("cluster_operators")
-            diagnostics["raw_output"]["cluster_operators"] = co_check
-            if co_check.get("degraded_operators"):
-                diagnostics["findings"].append(
-                    {
+            # Check the SPECIFIC operator status (not all operators)
+            if affected_components:
+                # Only check the relevant operator(s)
+                co_check = self._check_cluster_operators()
+                relevant_ops = affected_components
+                # Filter to show only relevant operator status
+                co_filtered = {
+                    "total_operators": co_check.get("total_operators", 0),
+                    "degraded_operators": [op for op in co_check.get("degraded_operators", []) if any(c in op for c in affected_components)],
+                    "unavailable_operators": [op for op in co_check.get("unavailable_operators", []) if any(c in op for c in affected_components)],
+                    "progressing_operators": [op for op in co_check.get("progressing_operators", []) if any(c in op for c in affected_components)],
+                }
+                # Get raw output for just the relevant operator
+                raw_lines = co_check.get("raw_output", "")
+                if raw_lines:
+                    header = raw_lines.split('\n')[0] if '\n' in raw_lines else ""
+                    filtered_lines = [header] if header else []
+                    for line in raw_lines.split('\n')[1:]:
+                        if any(c in line.lower() for c in affected_components):
+                            filtered_lines.append(line)
+                    co_filtered["raw_output"] = '\n'.join(filtered_lines) if filtered_lines else raw_lines
+                else:
+                    co_filtered["raw_output"] = ""
+
+                diagnostics["checks_performed"].append(f"operator_{'+'.join(affected_components)}")
+                diagnostics["raw_output"][f"operator_{'+'.join(affected_components)}"] = co_filtered
+
+                if co_filtered["degraded_operators"]:
+                    diagnostics["findings"].append({
+                        "severity": "critical",
+                        "finding": f"Degraded: {', '.join(co_filtered['degraded_operators'])}",
+                    })
+                if co_filtered["unavailable_operators"]:
+                    diagnostics["findings"].append({
+                        "severity": "critical",
+                        "finding": f"Unavailable: {', '.join(co_filtered['unavailable_operators'])}",
+                    })
+            else:
+                # General query — show all operators
+                co_check = self._check_cluster_operators()
+                diagnostics["checks_performed"].append("cluster_operators")
+                diagnostics["raw_output"]["cluster_operators"] = co_check
+                if co_check.get("degraded_operators"):
+                    diagnostics["findings"].append({
                         "severity": "critical",
                         "finding": f"Degraded operators: {', '.join(co_check['degraded_operators'])}",
-                    }
-                )
+                    })
 
-            # Check nodes
+            # Check nodes only for node/availability issues
             if issue_type in ["node_issue", "availability"] or "node" in affected_components:
                 node_check = self._check_nodes()
                 diagnostics["checks_performed"].append("nodes")
                 diagnostics["raw_output"]["nodes"] = node_check
                 if node_check.get("notready_nodes"):
-                    diagnostics["findings"].append(
-                        {
-                            "severity": "critical",
-                            "finding": f"NotReady nodes: {', '.join(node_check['notready_nodes'])}",
-                        }
-                    )
+                    diagnostics["findings"].append({
+                        "severity": "critical",
+                        "finding": f"NotReady nodes: {', '.join(node_check['notready_nodes'])}",
+                    })
 
             # Check specific component if provided
             if component and namespace:
@@ -330,7 +425,6 @@ class OCPClusterDebuggerAgent:
                         "finding": f"Component {component} status: {comp_check.get('status', 'Unknown')}",
                     })
 
-                # Add log findings
                 if comp_check.get("log_errors"):
                     for log_error in comp_check["log_errors"][:5]:
                         diagnostics["findings"].append({
@@ -344,13 +438,12 @@ class OCPClusterDebuggerAgent:
                         "finding": f"{component} has restarted {comp_check['restart_count']} times"
                     })
 
-            # Check API server if relevant
-            if "api" in affected_components or issue_type == "availability":
+            # Check API server ONLY if explicitly asked
+            if "api" in affected_components:
                 api_check = self._check_api_server()
                 diagnostics["checks_performed"].append("api_server")
                 diagnostics["raw_output"]["api_server"] = api_check
 
-                # Add findings from API server analysis
                 if api_check.get("pod_issues"):
                     for issue in api_check["pod_issues"]:
                         diagnostics["findings"].append({
@@ -359,19 +452,18 @@ class OCPClusterDebuggerAgent:
                         })
 
                 if api_check.get("log_errors"):
-                    for log_error in api_check["log_errors"][:5]:  # Top 5
+                    for log_error in api_check["log_errors"][:5]:
                         diagnostics["findings"].append({
                             "severity": "critical",
                             "finding": f"API Server Log: {log_error}"
                         })
 
-            # Check etcd if relevant
-            if "etcd" in affected_components or "api" in affected_components:
+            # Check etcd ONLY if explicitly asked
+            if "etcd" in affected_components:
                 etcd_check = self._check_etcd()
                 diagnostics["checks_performed"].append("etcd")
                 diagnostics["raw_output"]["etcd"] = etcd_check
 
-                # Add findings from etcd analysis
                 if etcd_check.get("pod_issues"):
                     for issue in etcd_check["pod_issues"]:
                         diagnostics["findings"].append({
@@ -380,14 +472,14 @@ class OCPClusterDebuggerAgent:
                         })
 
                 if etcd_check.get("log_errors"):
-                    for log_error in etcd_check["log_errors"][:5]:  # Top 5
+                    for log_error in etcd_check["log_errors"][:5]:
                         diagnostics["findings"].append({
                             "severity": "high",
                             "finding": f"etcd Log: {log_error}"
                         })
 
-            # Check events
-            events_check = self._check_recent_events(namespace)
+            # Check events SCOPED to the relevant namespace
+            events_check = self._check_recent_events(focused_namespace)
             diagnostics["checks_performed"].append("events")
             diagnostics["raw_output"]["events"] = events_check
 
@@ -427,11 +519,14 @@ class OCPClusterDebuggerAgent:
                     elif condition.get("type") == "Progressing" and condition.get("status") == "True":
                         progressing_operators.append(name)
 
+            co_wide = self._run_command(f"{self.oc_path} get co")
+
             return {
                 "total_operators": len(operators),
                 "degraded_operators": degraded_operators,
                 "unavailable_operators": unavailable_operators,
                 "progressing_operators": progressing_operators,
+                "raw_output": co_wide.get("stdout", ""),
             }
 
         except Exception as e:
@@ -460,10 +555,13 @@ class OCPClusterDebuggerAgent:
                         if condition.get("status") != "True":
                             notready_nodes.append(name)
 
+            wide_result = self._run_command(f"{self.oc_path} get nodes -o wide")
+
             return {
                 "total_nodes": total_nodes,
                 "ready_nodes": total_nodes - len(notready_nodes),
                 "notready_nodes": notready_nodes,
+                "raw_output": wide_result.get("stdout", ""),
             }
 
         except Exception as e:
@@ -625,12 +723,18 @@ class OCPClusterDebuggerAgent:
                             if any(err in line.lower() for err in ['error', 'fatal', 'panic', 'failed']):
                                 log_errors.append(f"{pod_name}: {line.strip()[:150]}")
 
+            # Also get wide view for human-readable output
+            wide_result = self._run_command(
+                f"{self.oc_path} get pods -n openshift-kube-apiserver -l app=openshift-kube-apiserver -o wide"
+            )
+
             return {
                 "total_pods": total_pods,
                 "running_pods": running_pods,
                 "healthy": running_pods == total_pods and total_pods > 0,
                 "pod_issues": pod_issues,
-                "log_errors": log_errors[:10],  # Limit to 10 most recent
+                "log_errors": log_errors[:10],
+                "raw_output": wide_result.get("stdout", ""),
             }
 
         except Exception as e:
@@ -680,12 +784,17 @@ class OCPClusterDebuggerAgent:
                     if restart_count > 3:
                         pod_issues.append(f"{pod_name}/etcd: High restart count ({restart_count})")
 
+            wide_result = self._run_command(
+                f"{self.oc_path} get pods -n openshift-etcd -l app=etcd -o wide"
+            )
+
             return {
                 "total_pods": total_pods,
                 "running_pods": running_pods,
                 "healthy": running_pods == total_pods and total_pods > 0 and len(log_errors) == 0,
                 "pod_issues": pod_issues,
-                "log_errors": log_errors[:15],  # Limit to 15
+                "log_errors": log_errors[:15],
+                "raw_output": wide_result.get("stdout", ""),
             }
 
         except Exception as e:
@@ -869,8 +978,8 @@ class OCPClusterDebuggerAgent:
                 ]
             )
 
-        # Default recommendations
-        if not recommendations:
+        # Only show default recommendations if there are actual findings
+        if not recommendations and findings:
             recommendations = [
                 "oc get co - Check all cluster operators",
                 "oc get nodes - Verify node status",

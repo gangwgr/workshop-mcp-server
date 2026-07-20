@@ -13,15 +13,20 @@ Constraint: Base all insights strictly on provided data, state uncertainty if da
 import os
 import json
 import re
+import gzip
 import tarfile
 import zipfile
 import shutil
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from workshop_mcp_server.utils.pylogger import get_python_logger
+from workshop_mcp_server.src.tools.mustgather_paths import (
+    has_mustgather_markers,
+    resolve_mustgather_data_root,
+)
 
 logger = get_python_logger()
 
@@ -101,6 +106,51 @@ class MustGatherAnalyzer:
         self.relevant_snippets: List[str] = []
         self.operator_conditions: Dict[str, Any] = {}
         self.node_states: Dict[str, Any] = {}
+        self.bundle_root: str = ""
+        self.critical_logs: List[Dict[str, Any]] = []
+
+    _STRUCTURED_SKIP_PATHS = (
+        "apiextensions.k8s.io/customresourcedefinitions",
+        "migration.k8s.io/storageversionmigrations",
+        "imageregistry.operator.openshift.io/imagepruners",
+    )
+
+    _GATHER_ARTIFACT_PATTERNS = (
+        r"skipping gathering.*due to error",
+        r"is deprecated in v4\.\d+",
+        r"DeploymentConfig is deprecated",
+        r"unavailable in v4\.\d+",
+    )
+
+    def _rel_path(self, file_path: str) -> str:
+        """Return bundle-relative path for display."""
+        if not file_path:
+            return file_path
+        fp = file_path.replace("\\", "/")
+        root = (self.bundle_root or "").replace("\\", "/").rstrip("/")
+        if root and fp.startswith(root):
+            return fp[len(root):].lstrip("/")
+        for marker in ("cluster-scoped-resources/", "namespaces/", "host_service_logs/"):
+            idx = fp.find(marker)
+            if idx >= 0:
+                return fp[idx:]
+        if "/gather.logs" in fp:
+            return "gather.logs"
+        return fp
+
+    def _is_gather_artifact(self, line: str) -> bool:
+        """Lines that reflect must-gather collection noise, not cluster failures."""
+        return any(re.search(p, line, re.IGNORECASE) for p in self._GATHER_ARTIFACT_PATTERNS)
+
+    def _upgrade_duration_text(self) -> str:
+        return self.cluster_info.get("upgrade_duration", "")
+
+    def _is_upgrade_failure(self) -> bool:
+        return (
+            self.cluster_info.get("upgrade_state") == "Partial"
+            or self.cluster_info.get("upgrade_failing")
+            or bool(self.cluster_info.get("upgrade_message"))
+        )
     
     def _extract_component_from_path(self, file_path: str) -> str:
         """Extract component name from file path"""
@@ -185,32 +235,32 @@ class MustGatherAnalyzer:
             ]
         }
 
-    def analyze_bundle(self, bundle_path: str) -> Dict[str, Any]:
-        """Analyze a must-gather bundle"""
+    def analyze_bundle(self, bundle_path: str, detailed_analysis: bool = True) -> Dict[str, Any]:
+        """Analyze a must-gather bundle."""
         try:
-            logger.info(f"Starting analysis of must-gather bundle: {bundle_path}")
-            
-            # Extract bundle if compressed
-            extracted_path = self._extract_bundle(bundle_path)
-            
-            # Perform comprehensive file discovery and analysis
-            logger.info(f"Starting comprehensive analysis of {extracted_path}")
-            
-            # First, discover all available files in the bundle
+            logger.info(f"Starting analysis of must-gather bundle: {bundle_path} (deep_logs={detailed_analysis})")
+
+            extracted_path = resolve_mustgather_data_root(self._extract_bundle(bundle_path))
+            logger.info(f"Analyzing {extracted_path}")
+
+            self.bundle_root = extracted_path
+            self.critical_logs = []
+
             self._discover_bundle_structure(extracted_path)
-            
-            # Analyze different components systematically
+
             self._analyze_cluster_info(extracted_path)
             self._analyze_nodes(extracted_path)
             self._analyze_pods(extracted_path)
             self._analyze_events(extracted_path)
             self._analyze_operators(extracted_path)
-            self._analyze_logs(extracted_path)
             self._analyze_network(extracted_path)
             self._analyze_storage(extracted_path)
-            
-            # Deep scan for any YAML/JSON files we might have missed
-            self._deep_scan_all_files(extracted_path)
+
+            if detailed_analysis:
+                # Deep log scan: walk all logs + YAML/JSON in bundle (slower, more thorough)
+                self._deep_scan_all_files(extracted_path)
+
+            self._build_critical_logs(extracted_path)
             
             # Generate health assessment
             health = self._assess_cluster_health()
@@ -225,7 +275,14 @@ class MustGatherAnalyzer:
             report = self._generate_report(health)
             
             logger.info(f"Analysis complete. Found {len(self.issues)} issues")
-            
+
+            issues_for_ui = []
+            for issue in self.issues[:100]:
+                d = issue.__dict__.copy()
+                d["file_path"] = self._rel_path(d.get("file_path", ""))
+                issues_for_ui.append(d)
+            issues_truncated = len(self.issues) > 100
+
             return {
                 "status": "success",
                 "bundle_path": bundle_path,
@@ -233,7 +290,11 @@ class MustGatherAnalyzer:
                 "anomaly_detection_result": anomaly_result.__dict__,
                 "sre_diagnostic_report": sre_report.__dict__,
                 "issues_found": len(self.issues),
-                "issues": [issue.__dict__ for issue in self.issues],
+                "issues_truncated": issues_truncated,
+                "issues": issues_for_ui,
+                "critical_logs": self.critical_logs,
+                "deep_log_scan": detailed_analysis,
+                "scanned_files": self.key_features.get("scanned_files", 0),
                 "report": report,
                 "cluster_info": self.cluster_info,
                 "key_features": self.key_features,
@@ -251,21 +312,26 @@ class MustGatherAnalyzer:
             }
 
     def _extract_bundle(self, bundle_path: str) -> str:
-        """Extract compressed must-gather bundle"""
+        """Extract compressed must-gather bundle (reuses existing extraction when valid)."""
         if not os.path.exists(bundle_path):
             raise FileNotFoundError(f"Must-gather bundle not found: {bundle_path}")
-            
-        # If it's already a directory, return it
+
         if os.path.isdir(bundle_path):
             logger.info(f"Bundle is already a directory: {bundle_path}")
             return bundle_path
-            
+
         extract_dir = bundle_path + "_extracted"
-        
-        # Remove existing extraction if it exists
+
+        # Reuse existing extraction to avoid races when SRE + scripts run together
+        if os.path.isdir(extract_dir):
+            existing = resolve_mustgather_data_root(extract_dir)
+            if has_mustgather_markers(existing):
+                logger.info(f"Reusing existing extraction: {existing}")
+                return existing
+
         if os.path.exists(extract_dir):
             shutil.rmtree(extract_dir)
-        
+
         logger.info(f"Extracting bundle {bundle_path} to {extract_dir}")
         
         # Extract based on file type
@@ -304,15 +370,41 @@ class MustGatherAnalyzer:
             raise
             
         # Find the actual must-gather root directory
-        extracted_files = os.listdir(extract_dir)
-        if len(extracted_files) == 1 and os.path.isdir(os.path.join(extract_dir, extracted_files[0])):
-            # Common case: bundle extracts to a single directory
-            actual_root = os.path.join(extract_dir, extracted_files[0])
-            logger.info(f"Found must-gather root directory: {actual_root}")
-            return actual_root
-            
+        data_root = resolve_mustgather_data_root(extract_dir)
+        if has_mustgather_markers(data_root):
+            logger.info(f"Found must-gather data root: {data_root}")
+            return data_root
+
         logger.info(f"Using extraction directory as root: {extract_dir}")
         return extract_dir
+
+    def _is_readable_file(self, file_path: str) -> bool:
+        """Return True if path is a readable regular file (not symlink/dir)."""
+        try:
+            return os.path.isfile(file_path) and not os.path.islink(file_path)
+        except OSError:
+            return False
+
+    def _read_text_file(self, file_path: str, max_lines: Optional[int] = None) -> List[str]:
+        """Read a text or .gz log file; return lines or empty list on failure."""
+        if not self._is_readable_file(file_path):
+            return []
+        try:
+            if file_path.endswith(".gz"):
+                with gzip.open(file_path, "rt", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+            else:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+            if max_lines is not None and len(lines) > max_lines:
+                return lines[-max_lines:]
+            return lines
+        except OSError as e:
+            logger.warning(f"Skipping unreadable file {file_path}: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to read file {file_path}: {e}")
+            return []
 
     def _discover_bundle_structure(self, path: str):
         """Discover and log the structure of the must-gather bundle"""
@@ -363,29 +455,36 @@ class MustGatherAnalyzer:
             logger.error(f"Error discovering bundle structure: {e}")
 
     def _deep_scan_all_files(self, path: str):
-        """Perform deep scan of all files for comprehensive analysis"""
+        """Perform deep scan of all files for comprehensive analysis."""
+        max_issues = 2500
         try:
-            logger.info("Starting deep scan of all files")
+            logger.info("Starting deep log scan")
             scanned_files = 0
             issues_found = 0
-            
+
             for root, dirs, files in os.walk(path):
+                if len(self.issues) >= max_issues:
+                    logger.info(f"Deep scan issue cap reached ({max_issues})")
+                    break
                 for file in files:
+                    if len(self.issues) >= max_issues:
+                        break
                     file_path = os.path.join(root, file)
-                    
-                    # Skip very large files to avoid memory issues
+                    if not self._is_readable_file(file_path):
+                        continue
+
                     try:
                         file_size = os.path.getsize(file_path)
-                        if file_size > 100 * 1024 * 1024:  # Skip files > 100MB
+                        if file_size > 100 * 1024 * 1024:
                             continue
-                    except:
+                    except OSError:
                         continue
-                    
+
                     if file.endswith(('.yaml', '.yml', '.json')):
                         scanned_files += 1
                         if self._analyze_structured_file(file_path, root.replace(path, "")):
                             issues_found += 1
-                    elif 'log' in file.lower() or file.endswith('.log'):
+                    elif file.endswith(('.log', '.log.gz', '.txt')) or 'log' in file.lower():
                         scanned_files += 1
                         if self._analyze_log_file_deep(file_path):
                             issues_found += 1
@@ -402,35 +501,33 @@ class MustGatherAnalyzer:
     def _analyze_structured_file(self, file_path: str, relative_dir: str) -> bool:
         """Analyze a YAML or JSON file for issues"""
         try:
+            if any(skip in file_path for skip in self._STRUCTURED_SKIP_PATHS):
+                return False
+
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             issues_found = False
+            rel_path = self._rel_path(file_path)
             
             # Look for error conditions in the content
             error_patterns = [
                 r'status:\s*"?failed"?',
                 r'phase:\s*"?failed"?',
-                r'condition.*false',
                 r'ready:\s*false',
                 r'available:\s*false',
                 r'degraded:\s*true',
-                r'error.*:',
-                r'failed.*:',
                 r'crashloopbackoff',
                 r'imagepullbackoff',
-                r'pending',
                 r'evicted',
                 r'oomkilled',
-                r'notready',
-                r'unhealthy'
+                r'containerstatusunknown',
             ]
             
             for pattern in error_patterns:
                 matches = re.findall(pattern, content, re.IGNORECASE)
                 if matches:
-                    # Determine severity based on pattern
-                    if any(severe in pattern for severe in ['failed', 'degraded', 'crash', 'oom']):
+                    if any(severe in pattern for severe in ['failed', 'degraded', 'crash', 'oom', 'containerstatusunknown']):
                         severity = "critical"
                     else:
                         severity = "warning"
@@ -441,14 +538,10 @@ class MustGatherAnalyzer:
                         component=self._extract_component_from_path(file_path),
                         title=f"Issue found in {os.path.basename(file_path)}",
                         description=f"Pattern '{pattern}' found: {matches[0][:100]}",
-                        file_path=relative_dir + "/" + os.path.basename(file_path),
+                        file_path=rel_path,
                         suggested_fix="Review configuration and logs for detailed troubleshooting"
                     ))
-                    issues_found = True
-            
-            # Add to relevant snippets if it contains interesting data
-            if any(keyword in content.lower() for keyword in ['error', 'failed', 'warning', 'critical']):
-                self.relevant_snippets.append(f"File: {relative_dir}/{os.path.basename(file_path)}\n{content[:400]}...")
+                    return True
             
             return issues_found
             
@@ -461,47 +554,147 @@ class MustGatherAnalyzer:
         try:
             issues_found = False
             error_count = 0
-            
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
-            
-            # Analyze recent lines (last 1000) for efficiency
-            recent_lines = lines[-1000:] if len(lines) > 1000 else lines
-            
-            for line_num, line in enumerate(recent_lines):
-                # Count different types of errors
+            warning_count = 0
+            rel_path = self._rel_path(file_path)
+            is_gather_log = rel_path.endswith("gather.logs")
+
+            lines = self._read_text_file(file_path, max_lines=1000)
+            if not lines:
+                return False
+
+            for line_num, line in enumerate(lines):
+                if self._is_gather_artifact(line):
+                    continue
+
                 if re.search(r'(ERROR|FATAL|CRITICAL)', line, re.IGNORECASE):
+                    if is_gather_log and re.search(
+                        r'skipping gathering|inspection completed with the errors occurred',
+                        line,
+                        re.IGNORECASE,
+                    ):
+                        severity = "warning"
+                    else:
+                        severity = "critical"
                     error_count += 1
-                    if error_count <= 5:  # Only capture first 5 errors to avoid spam
+                    if error_count <= 3:
                         self.issues.append(MustGatherIssue(
-                            severity="critical",
+                            severity=severity,
                             category="logs",
                             component=self._extract_component_from_path(file_path),
                             title=f"Critical error in {os.path.basename(file_path)}",
                             description=line.strip()[:200],
-                            file_path=file_path,
-                            line_number=len(lines) - len(recent_lines) + line_num + 1
+                            file_path=rel_path,
+                            line_number=line_num + 1
                         ))
                         issues_found = True
-                
+
                 elif re.search(r'(WARN|WARNING)', line, re.IGNORECASE):
-                    if error_count <= 3:  # Limit warnings too
+                    warning_count += 1
+                    if warning_count <= 2:
                         self.issues.append(MustGatherIssue(
                             severity="warning",
                             category="logs",
                             component=self._extract_component_from_path(file_path),
                             title=f"Warning in {os.path.basename(file_path)}",
                             description=line.strip()[:200],
-                            file_path=file_path,
-                            line_number=len(lines) - len(recent_lines) + line_num + 1
+                            file_path=rel_path,
+                            line_number=line_num + 1
                         ))
                         issues_found = True
-            
+
             return issues_found
-            
+
         except Exception as e:
             logger.error(f"Error analyzing log file {file_path}: {e}")
             return False
+
+    def _build_critical_logs(self, path: str):
+        """Extract highest-signal log lines for the Critical Logs panel."""
+        score_patterns = [
+            (r"unable to upgrade websocket", 100, "crio"),
+            (r"ContainerStatusUnknown", 95, "installer"),
+            (r"Unable to apply", 90, "upgrade"),
+            (r"unable to handle the request", 85, "api"),
+            (r"APIServicesDegraded", 80, "operator"),
+            (r"OAuthClientsControllerDegraded", 80, "auth"),
+            (r"Unhandled Error", 75, "error"),
+            (r'level=error', 70, "error"),
+            (r"inspection completed with.*errors", 65, "gather"),
+            (r"reconciling.*failed", 60, "operator"),
+            (r"etcd.*leader changed|leader lost", 90, "etcd"),
+            (r"etcd.*compaction", 70, "etcd"),
+            (r"etcd.*apply request took too long", 85, "etcd"),
+            (r"etcd.*slow fdatasync", 80, "etcd"),
+            (r"etcd.*database space exceeded", 95, "etcd"),
+            (r"waiting for ReadIndex response took too long", 75, "etcd"),
+            (r"FailedMount|MountVolume.*failed", 70, "mount"),
+            (r"Unhealthy|Liveness probe failed|Readiness probe failed", 75, "health"),
+            (r"CrashLoopBackOff", 90, "crash"),
+            (r"OOMKilled|oom-kill", 95, "oom"),
+            (r"FailedScheduling", 65, "scheduling"),
+            (r"Back-off restarting failed container", 80, "crash"),
+        ]
+        priority_markers = (
+            "host_service_logs/",
+            "gather.logs",
+            "/installer",
+            "namespaces/openshift-",
+            "static-pods/",
+        )
+        candidates: List[Dict[str, Any]] = []
+
+        for root, _dirs, files in os.walk(path):
+            for file in files:
+                if not (file.endswith((".log", ".log.gz", ".txt")) or "log" in file.lower()):
+                    continue
+                full_path = os.path.join(root, file)
+                if not self._is_readable_file(full_path):
+                    continue
+                try:
+                    if os.path.getsize(full_path) > 50 * 1024 * 1024:
+                        continue
+                except OSError:
+                    continue
+
+                rel = self._rel_path(full_path)
+                is_priority = any(marker in rel for marker in priority_markers)
+                max_lines = 1500 if is_priority else 800
+                lines = self._read_text_file(full_path, max_lines=max_lines)
+                for line_num, line in enumerate(lines):
+                    if self._is_gather_artifact(line):
+                        continue
+                    score = 0
+                    tag = "log"
+                    for pattern, pts, tag_name in score_patterns:
+                        if re.search(pattern, line, re.IGNORECASE):
+                            score = max(score, pts)
+                            tag = tag_name
+                    if score == 0 and is_priority and re.search(
+                        r"ERROR|FATAL|degraded|unable|failed", line, re.IGNORECASE
+                    ):
+                        score = 55
+                    if score > 0:
+                        candidates.append({
+                            "score": score,
+                            "file": rel,
+                            "line": line_num + 1,
+                            "message": line.strip()[:300],
+                            "component": self._extract_component_from_path(rel),
+                            "tag": tag,
+                        })
+
+        candidates.sort(key=lambda x: -x["score"])
+        seen = set()
+        result = []
+        for entry in candidates:
+            key = (entry["file"], entry["message"][:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({k: v for k, v in entry.items() if k != "score"})
+            if len(result) >= 40:
+                break
+        self.critical_logs = result
 
     def _analyze_operators(self, path: str):
         """Analyze cluster operators in detail"""
@@ -711,33 +904,66 @@ class MustGatherAnalyzer:
     def _analyze_events(self, path: str):
         """Analyze cluster events for issues"""
         try:
-            # Look for events in various namespaces
             namespaces_path = os.path.join(path, "namespaces")
-            if os.path.exists(namespaces_path):
-                for namespace in os.listdir(namespaces_path):
-                    events_path = os.path.join(namespaces_path, namespace, "core/events.yaml")
-                    
-                    if os.path.exists(events_path):
-                        with open(events_path, 'r') as f:
-                            content = f.read()
-                            
-                        # Check for error events
-                        error_events = [
-                            "Failed", "Error", "Warning", "Unhealthy", 
-                            "FailedScheduling", "FailedMount", "FailedSync"
-                        ]
-                        
-                        for error in error_events:
-                            if error in content:
-                                self.issues.append(MustGatherIssue(
-                                    severity="warning",
-                                    category="events",
-                                    component=namespace,
-                                    title=f"Event: {error} found in {namespace}",
-                                    description=f"Detected {error} events in namespace {namespace}",
-                                    file_path=f"namespaces/{namespace}/core/events.yaml"
-                                ))
-                                
+            if not os.path.exists(namespaces_path):
+                return
+
+            event_count = 0
+            max_event_issues = 20
+
+            critical_namespaces = {
+                "openshift-apiserver", "openshift-authentication",
+                "openshift-etcd", "openshift-kube-apiserver",
+                "openshift-kube-controller-manager", "openshift-kube-scheduler",
+                "openshift-ingress", "openshift-monitoring",
+                "openshift-cluster-version",
+            }
+
+            critical_event_types = {"Unhealthy", "CrashLoopBackOff", "OOMKilled", "FailedSync"}
+            high_event_types = {"FailedScheduling", "FailedMount", "Failed"}
+
+            for namespace in sorted(os.listdir(namespaces_path)):
+                if event_count >= max_event_issues:
+                    break
+                events_path = os.path.join(namespaces_path, namespace, "core/events.yaml")
+
+                if os.path.exists(events_path):
+                    with open(events_path, 'r') as f:
+                        content = f.read()
+
+                    error_events = [
+                        "FailedScheduling", "FailedMount", "FailedSync",
+                        "Unhealthy", "CrashLoopBackOff", "OOMKilled",
+                        "Failed", "Error",
+                    ]
+
+                    found_types = [evt for evt in error_events if evt in content]
+                    if found_types:
+                        found_set = set(found_types)
+                        is_critical_ns = namespace in critical_namespaces
+
+                        if found_set & critical_event_types and is_critical_ns:
+                            severity = "critical"
+                        elif (found_set & critical_event_types) or (found_set & high_event_types and is_critical_ns):
+                            severity = "critical"
+                        elif len(found_types) >= 3 and is_critical_ns:
+                            severity = "critical"
+                        else:
+                            severity = "warning"
+
+                        self.issues.append(MustGatherIssue(
+                            severity=severity,
+                            category="events",
+                            component=namespace,
+                            title=f"Events in {namespace}: {', '.join(found_types[:4])}",
+                            description=(
+                                f"Detected event types in namespace {namespace}: "
+                                f"{', '.join(found_types)}"
+                            ),
+                            file_path=f"namespaces/{namespace}/core/events.yaml"
+                        ))
+                        event_count += 1
+
         except Exception as e:
             logger.error(f"Error analyzing events: {e}")
 
@@ -762,19 +988,23 @@ class MustGatherAnalyzer:
         try:
             for root, dirs, files in os.walk(directory):
                 for file in files:
-                    if file.endswith(('.log', '.txt')) or 'log' in file.lower():
+                    if file.endswith(('.log', '.log.gz', '.txt')) or 'log' in file.lower():
                         file_path = os.path.join(root, file)
-                        self._analyze_log_file(file_path)
+                        if self._is_readable_file(file_path):
+                            self._analyze_log_file(file_path)
         except Exception as e:
             logger.error(f"Error scanning logs in {directory}: {e}")
 
     def _analyze_log_file(self, file_path: str):
         """Analyze individual log file for errors"""
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
-                
+            lines = self._read_text_file(file_path)
+            if not lines:
+                return
+
             for line_num, line in enumerate(lines, 1):
+                if len([i for i in self.issues if i.file_path == file_path]) >= 5:
+                    break
                 # Check against error patterns
                 for severity, patterns in self.log_patterns.items():
                     for pattern in patterns:
@@ -876,16 +1106,89 @@ class MustGatherAnalyzer:
 
     def _extract_version_features(self, content: str):
         """Extract version-related features for anomaly detection"""
-        if "version:" in content.lower():
-            # Extract version information for key features
-            version_match = re.search(r'version:\s*([^\s]+)', content, re.IGNORECASE)
-            if version_match:
-                self.key_features["cluster_version"] = version_match.group(1)
+        history_match = re.search(
+            r"state:\s*Partial\s*\n(?:[^\n]*\n)*?\s+version:\s*([0-9]+\.[0-9]+\.[0-9]+)",
+            content,
+        )
+        desired_match = re.search(
+            r"desired:\s*\n(?:\s+.+\n)+?^\s+version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$",
+            content,
+            re.MULTILINE,
+        )
+        version = None
+        if history_match:
+            version = history_match.group(1)
+        elif desired_match:
+            version = desired_match.group(1)
+        if version:
+            self.key_features["cluster_version"] = version
+            self.cluster_info["cluster_version"] = version
+
+        if re.search(r"state:\s*Partial", content):
+            self.cluster_info["upgrade_state"] = "Partial"
+
+        if re.search(r"type:\s*Failing[\s\S]*?status:\s*\"?True\"?", content):
+            self.cluster_info["upgrade_failing"] = True
+            self.key_features["clusterversion_failing"] = True
+
+        if re.search(r"type:\s*Available[\s\S]*?status:\s*\"?False\"?", content):
+            self.key_features["clusterversion_available"] = False
+
+        if re.search(r"type:\s*Progressing[\s\S]*?status:\s*\"?True\"?", content):
+            self.key_features["clusterversion_progressing"] = True
+
+        progressing = re.search(
+            r"type:\s*Progressing[\s\S]*?message:\s*'([^']+)'",
+            content,
+        )
+        if not progressing:
+            progressing = re.search(
+                r"type:\s*Progressing[\s\S]*?message:\s*\"([^\"]+)\"",
+                content,
+            )
+        if progressing:
+            self.cluster_info["upgrade_message"] = progressing.group(1).strip()
+
+        failing_lt = re.search(
+            r"- lastTransitionTime:\s*\"?([^\"\n]+)\"?[\s\S]*?type:\s*Failing",
+            content,
+        )
+        started = re.search(
+            r"startedTime:\s*\"?([^\"\n]+)\"?[\s\S]*?state:\s*Partial",
+            content,
+        )
+        start_ts = None
+        end_ts = None
+        for match in (started, failing_lt):
+            if not match:
+                continue
+            try:
+                ts = datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+                if match == started:
+                    start_ts = ts
+                else:
+                    end_ts = ts
+            except ValueError:
+                pass
+        if start_ts and end_ts and end_ts > start_ts:
+            delta = end_ts - start_ts
+            if delta.days > 0:
+                self.cluster_info["upgrade_duration"] = f"{delta.days} days"
+            else:
+                hours = max(delta.seconds // 3600, 1)
+                self.cluster_info["upgrade_duration"] = f"{hours} hours"
+        elif start_ts:
+            delta = datetime.now(timezone.utc) - start_ts
+            if delta.days > 0:
+                self.cluster_info["upgrade_duration"] = f"{delta.days} days"
+            elif delta.seconds >= 3600:
+                self.cluster_info["upgrade_duration"] = f"{delta.seconds // 3600} hours"
 
     def _extract_operator_features(self, content: str):
         """Extract operator-related features for anomaly detection"""
         # Count operators by status
         self.key_features["operators_available"] = content.lower().count("available: true")
+        self.key_features["operators_unavailable"] = content.lower().count("available: false")
         self.key_features["operators_degraded"] = content.lower().count("degraded: true")
         self.key_features["operators_progressing"] = content.lower().count("progressing: true")
         
@@ -914,12 +1217,36 @@ class MustGatherAnalyzer:
             # Critical issues scoring
             critical_issues = len([i for i in self.issues if i.severity == "critical"])
             if critical_issues > 0:
-                anomaly_score += min(critical_issues * 0.2, 0.8)  # Max 0.8 for critical issues
+                anomaly_score += min(critical_issues * 0.2, 0.8)
                 primary_anomalies.append(f"{critical_issues} critical issues detected")
             
+            # Warning issues scoring (many warnings = something is wrong)
+            warning_issues = len([i for i in self.issues if i.severity == "warning"])
+            if warning_issues >= 10:
+                anomaly_score += min(warning_issues * 0.03, 0.5)
+                primary_anomalies.append(f"{warning_issues} warning issues across components")
+            elif warning_issues >= 5:
+                anomaly_score += min(warning_issues * 0.02, 0.3)
+                primary_anomalies.append(f"{warning_issues} warning issues detected")
+
+            # ClusterVersion health — check if upgrade is stuck/failing
+            cv_available = self.key_features.get("clusterversion_available", True)
+            cv_progressing = self.key_features.get("clusterversion_progressing", False)
+            cv_failing = self.key_features.get("clusterversion_failing", False)
+            if not cv_available or cv_failing:
+                anomaly_score += 0.5
+                primary_anomalies.append("ClusterVersion not available or failing")
+            elif cv_progressing:
+                anomaly_score += 0.2
+                primary_anomalies.append("ClusterVersion still progressing (upgrade in progress)")
+
             # Operator health scoring
             operators_degraded = self.key_features.get("operators_degraded", 0)
-            if operators_degraded > 0:
+            operators_unavailable = self.key_features.get("operators_unavailable", 0)
+            if operators_unavailable > 0:
+                anomaly_score += min(operators_unavailable * 0.2, 0.7)
+                primary_anomalies.append(f"{operators_unavailable} operators unavailable")
+            elif operators_degraded > 0:
                 anomaly_score += min(operators_degraded * 0.15, 0.6)
                 primary_anomalies.append(f"{operators_degraded} operators degraded")
             
@@ -940,6 +1267,13 @@ class MustGatherAnalyzer:
             if nodes_memorypressure > 0:
                 anomaly_score += min(nodes_memorypressure * 0.2, 0.5)
                 primary_anomalies.append(f"{nodes_memorypressure} nodes under memory pressure")
+
+            # Critical log signals (API unavailable, crash loops)
+            if self.critical_logs:
+                api_errors = sum(1 for log in self.critical_logs if 'unable to handle the request' in (log.get('message', '') or '').lower())
+                if api_errors >= 3:
+                    anomaly_score += 0.3
+                    primary_anomalies.append(f"API server unavailable errors ({api_errors} occurrences)")
             
             # Cap the score at 1.0
             anomaly_score = min(anomaly_score, 1.0)
@@ -1065,66 +1399,86 @@ class MustGatherAnalyzer:
                 )
         
         # PRIORITY 1: Look for upgrade-related issues (highest priority root cause)
-        upgrade_issues = [issue for issue in critical_issues if 
-                         any(keyword in issue.description.lower() for keyword in 
-                             ["installing", "upgrade", "clusterversion", "unable to apply", "multiple errors"])]
-        
-        if upgrade_issues:
-            upgrade_issue = upgrade_issues[0]
-            
-            # Extract version from description if possible
-            version_match = re.search(r'(\d+\.\d+\.\d+)', upgrade_issue.description)
-            if version_match:
-                version = version_match.group(1)
-                primary_issue = f"Cluster upgrade to OpenShift {version} stuck/failed (running 11+ hours)"
+        operator_issues = [
+            issue for issue in critical_issues
+            if issue.category == "operators"
+            or any(keyword in issue.description.lower() for keyword in
+                   ["clusteroperator", "degraded", "not available", "unable to apply"])
+        ]
+        upgrade_issues = [
+            issue for issue in critical_issues
+            if any(keyword in issue.description.lower() for keyword in
+                   ["installing", "upgrade", "clusterversion", "unable to apply", "containerstatusunknown"])
+        ]
+
+        if self._is_upgrade_failure() or upgrade_issues or len(operator_issues) >= 2:
+            version = (
+                self.cluster_info.get("cluster_version")
+                or self.key_features.get("cluster_version", "")
+            )
+            duration = self._upgrade_duration_text()
+            duration_suffix = f" ({duration})" if duration else ""
+
+            if version:
+                primary_issue = f"Cluster upgrade to OpenShift {version} stuck/failed{duration_suffix}"
             else:
-                primary_issue = "Cluster upgrade stuck/failed with multiple errors"
-            
-            # Build comprehensive evidence with detailed log entries
+                primary_issue = f"Cluster upgrade stuck/failed{duration_suffix}"
+
             evidence_parts = [
-                f"**🚨 UPGRADE FAILURE EVIDENCE ({len(upgrade_issues)} critical errors):**",
-                ""
+                "**🚨 UPGRADE FAILURE EVIDENCE:**",
+                "",
             ]
-            
-            # Add detailed upgrade errors
-            for i, issue in enumerate(upgrade_issues[:3], 1):  # Show top 3 upgrade issues
-                evidence_parts.append(f"{i}. **CRITICAL UPGRADE ERROR**")
-                evidence_parts.append(f"   File: {issue.file_path if issue.file_path else 'unknown'}")
-                if issue.line_number:
-                    evidence_parts.append(f"   Line: {issue.line_number}")
-                evidence_parts.append(f"   Component: {issue.component}")
-                evidence_parts.append(f"   Full Error: {issue.description}")
+
+            if self.cluster_info.get("upgrade_state") == "Partial":
+                evidence_parts.append("• ClusterVersion history state: **Partial**")
+            if self.cluster_info.get("upgrade_message"):
+                evidence_parts.append(f"• Progressing: {self.cluster_info['upgrade_message']}")
+            if duration:
+                evidence_parts.append(f"• Failing condition duration: **{duration}**")
+            evidence_parts.append("")
+
+            log_evidence = self.critical_logs[:5] if self.critical_logs else upgrade_issues[:3]
+            for i, item in enumerate(log_evidence, 1):
+                if isinstance(item, dict):
+                    evidence_parts.append(f"{i}. **CRITICAL LOG** ({item.get('tag', 'log')})")
+                    evidence_parts.append(f"   File: {item.get('file', 'unknown')}")
+                    if item.get("line"):
+                        evidence_parts.append(f"   Line: {item['line']}")
+                    evidence_parts.append(f"   Component: {item.get('component', 'unknown')}")
+                    evidence_parts.append(f"   Message: {item.get('message', '')}")
+                else:
+                    evidence_parts.append(f"{i}. **CRITICAL UPGRADE ERROR**")
+                    evidence_parts.append(f"   File: {self._rel_path(item.file_path) if item.file_path else 'unknown'}")
+                    if item.line_number:
+                        evidence_parts.append(f"   Line: {item.line_number}")
+                    evidence_parts.append(f"   Component: {item.component}")
+                    evidence_parts.append(f"   Full Error: {item.description}")
                 evidence_parts.append("")
-            
-            # Look for related operator degradation as secondary evidence
-            operator_issues = [issue for issue in critical_issues if 
-                             any(keyword in issue.description.lower() for keyword in 
-                                 ["clusteroperator", "degraded", "not available"])]
             
             if operator_issues:
                 evidence_parts.append(f"**🔴 OPERATOR DEGRADATION CASCADE ({len(operator_issues)} operators affected):**")
                 evidence_parts.append("")
                 
                 degraded_ops = []
-                for i, issue in enumerate(operator_issues[:5], 1):  # Show top 5 operator issues
+                for i, issue in enumerate(operator_issues[:5], 1):
                     evidence_parts.append(f"{i}. **OPERATOR FAILURE**")
                     evidence_parts.append(f"   Component: {issue.component}")
-                    evidence_parts.append(f"   File: {issue.file_path if issue.file_path else 'unknown'}")
+                    evidence_parts.append(f"   File: {self._rel_path(issue.file_path) if issue.file_path else 'unknown'}")
                     if issue.line_number:
                         evidence_parts.append(f"   Line: {issue.line_number}")
                     evidence_parts.append(f"   Error Details: {issue.description}")
                     evidence_parts.append("")
                     
-                    # Extract operator name for summary
                     op_match = re.search(r'clusteroperator/([a-zA-Z0-9-]+)', issue.description)
                     if op_match:
                         degraded_ops.append(op_match.group(1))
+                    elif issue.component:
+                        degraded_ops.append(issue.component)
                 
                 if degraded_ops:
                     evidence_parts.append(f"Affected operators: {', '.join(list(set(degraded_ops)))}")
                     evidence_parts.append("")
             
-            # Look for API server issues as tertiary evidence
             api_issues = [issue for issue in critical_issues if 
                          any(keyword in issue.description.lower() for keyword in 
                              ["server is currently unable", "unable to handle", "server doesn't have"])]
@@ -1133,23 +1487,23 @@ class MustGatherAnalyzer:
                 evidence_parts.append(f"**⚠️ API SERVER FAILURES ({len(api_issues)} failures detected):**")
                 evidence_parts.append("")
                 
-                for i, issue in enumerate(api_issues[:3], 1):  # Show top 3 API issues
+                for i, issue in enumerate(api_issues[:3], 1):
                     evidence_parts.append(f"{i}. **API SERVER ERROR**")
-                    evidence_parts.append(f"   File: {issue.file_path if issue.file_path else 'unknown'}")
+                    evidence_parts.append(f"   File: {self._rel_path(issue.file_path) if issue.file_path else 'unknown'}")
                     if issue.line_number:
                         evidence_parts.append(f"   Line: {issue.line_number}")
                     evidence_parts.append(f"   Error: {issue.description}")
                     evidence_parts.append("")
             
-            # Add summary statistics
             evidence_parts.append("**📊 FAILURE SUMMARY:**")
-            evidence_parts.append(f"• Total upgrade-related errors: {len(upgrade_issues)}")
+            evidence_parts.append(f"• Upgrade state: {self.cluster_info.get('upgrade_state', 'unknown')}")
             evidence_parts.append(f"• Operator degradation events: {len(operator_issues)}")
             evidence_parts.append(f"• API server failures: {len(api_issues)}")
             evidence_parts.append(f"• Total critical issues: {len(critical_issues)}")
             
+            duration_impact = f" for {duration}" if duration else ""
             impact = [
-                "🚨 Cluster stuck in partial upgrade state for 11+ hours",
+                f"🚨 Cluster stuck in partial upgrade state{duration_impact}",
                 f"{len(operator_issues)} cluster operators degraded/failing",
                 f"{len(api_issues)} API server request failures detected", 
                 "New features and security patches not applied",
@@ -1177,7 +1531,7 @@ class MustGatherAnalyzer:
             # Add detailed API server error entries
             for i, issue in enumerate(api_issues[:5], 1):  # Show top 5 API issues
                 evidence_parts.append(f"{i}. **API SERVER ERROR**")
-                evidence_parts.append(f"   File: {issue.file_path if issue.file_path else 'unknown'}")
+                evidence_parts.append(f"   File: {self._rel_path(issue.file_path) if issue.file_path else 'unknown'}")
                 if issue.line_number:
                     evidence_parts.append(f"   Line: {issue.line_number}")
                 evidence_parts.append(f"   Component: {issue.component}")
@@ -1242,7 +1596,7 @@ class MustGatherAnalyzer:
             for i, issue in enumerate(operator_issues[:8], 1):  # Show top 8 operator issues
                 evidence_parts.append(f"{i}. **OPERATOR FAILURE**")
                 evidence_parts.append(f"   Component: {issue.component}")
-                evidence_parts.append(f"   File: {issue.file_path if issue.file_path else 'unknown'}")
+                evidence_parts.append(f"   File: {self._rel_path(issue.file_path) if issue.file_path else 'unknown'}")
                 if issue.line_number:
                     evidence_parts.append(f"   Line: {issue.line_number}")
                 evidence_parts.append(f"   Error Details: {issue.description}")
@@ -1337,49 +1691,43 @@ class MustGatherAnalyzer:
         return primary_issue, "\n".join(evidence_parts), impact
     
     def _generate_immediate_actions(self, primary_issue: str) -> List[str]:
-        """Generate immediate actions based on the primary issue type"""
+        """Generate bundle-based investigation steps (offline must-gather — no live oc)."""
         primary_lower = primary_issue.lower()
-        
+
         if "upgrade" in primary_lower and ("stuck" in primary_lower or "failed" in primary_lower):
             return [
-                "oc get clusterversion - Check current upgrade status",
-                "oc describe clusterversion version - Get detailed upgrade progress",
-                "oc get clusteroperators - Check operator health during upgrade",
-                "oc adm upgrade status - View upgrade history and current state",
-                "Consider upgrade rollback if safe to do so"
+                "Review cluster-scoped-resources/config.openshift.io/clusterversions.yaml for version, conditions, and upgrade history",
+                "Check cluster-scoped-resources/config.openshift.io/clusteroperators/ for Progressing/Degraded operators blocking upgrade",
+                "Inspect cluster-scoped-resources/core/events.yaml and namespace events for upgrade-related warnings",
+                "Review operator pod logs under namespaces/openshift-*/pods/ tied to failing operators",
             ]
         elif "api server" in primary_lower:
             return [
-                "oc version - Test basic API connectivity",
-                "kubectl get nodes - Verify cluster access",
-                "Check master node logs for API server errors",
-                "Verify etcd cluster health and accessibility",
-                "Restart API server pods if accessible"
+                "Review static-pods/kube-apiserver/*-termination.log.gz for API server errors",
+                "Check namespaces/openshift-kube-apiserver/pods/ for pod status and container logs",
+                "Inspect cluster-scoped-resources/core/nodes.yaml for control plane node Ready conditions",
+                "Review namespaces/openshift-etcd/ for etcd health (API depends on etcd quorum)",
             ]
         elif "operator" in primary_lower and "degraded" in primary_lower:
             return [
-                "oc get clusteroperators - List all operator statuses",
-                "oc describe co <operator-name> - Check specific operator details",
-                "oc get pods -n openshift-* - Check operator pod health",
-                "oc get events --all-namespaces --sort-by=.lastTimestamp - Recent events",
-                "Review operator logs for specific failure reasons"
+                "List degraded operators in cluster-scoped-resources/config.openshift.io/clusteroperators/",
+                "For each degraded operator, check namespaces/openshift-<operator>/pods/ logs and events",
+                "Correlate operator degradation timestamps with cluster-scoped-resources/core/events.yaml",
+                "Review related ClusterOperator YAML status.conditions (Available, Degraded, Progressing)",
             ]
         elif "storage" in primary_lower:
             return [
-                "oc get pv,pvc --all-namespaces - Check volume status",
-                "oc get storageclass - Verify storage classes",
-                "df -h on cluster nodes - Check disk space",
-                "Check etcd disk performance and space",
-                "Verify storage backend health"
+                "Review cluster-scoped-resources/core/persistentvolumes.yaml and PVCs under namespaces/",
+                "Check cluster-scoped-resources/storage.k8s.io/storageclasses.yaml",
+                "Inspect CSI/driver pod logs in namespaces/openshift-cluster-csi-drivers/ if present",
+                "Look for volume mount errors in affected pod logs under namespaces/",
             ]
         else:
-            # Generic immediate actions
             return [
-                "oc get nodes,pods --all-namespaces - Overall cluster status",
-                "oc get events --all-namespaces --sort-by=.lastTimestamp - Recent events",
-                "oc top nodes,pods --all-namespaces - Resource utilization",
-                "Check cluster operator and node health",
-                "Review recent configuration changes"
+                "Review cluster-scoped-resources/config.openshift.io/clusteroperators/ for overall operator health",
+                "Check namespaces/ for non-Running pods, events.yaml, and container logs",
+                "Inspect cluster-scoped-resources/core/nodes.yaml for node conditions",
+                "Review host_service_logs/ and audit_logs/ in the bundle if present",
             ]
     
     def _generate_root_cause_summary(self, primary_issue: str, evidence: str) -> str:
@@ -1483,61 +1831,49 @@ class MustGatherAnalyzer:
         critical_issues = [i for i in self.issues if i.severity == "critical"]
         components_affected = set([i.component for i in critical_issues])
         
-        # Immediate actions based on affected components
+        # Bundle-based investigation steps (offline must-gather)
         if "operators" in components_affected:
             immediate_actions.extend([
-                "oc get co - Check cluster operator status",
-                "oc get co | grep -v True - Identify degraded operators",
-                "oc describe co <operator-name> - Get detailed operator status"
+                "Review cluster-scoped-resources/config.openshift.io/clusteroperators/ for degraded conditions",
+                "Check namespaces/openshift-*/pods/ for operator pod logs",
             ])
             long_term_fixes.extend([
-                "Review operator resource limits and requests",
-                "Check operator configuration for misconfigurations",
-                "Monitor operator logs for recurring issues"
+                "Review operator resource limits in bundle YAML after cluster recovery",
+                "Establish operator health monitoring once cluster is accessible",
             ])
-        
+
         if "nodes" in components_affected:
             immediate_actions.extend([
-                "oc get nodes - Check node readiness status",
-                "oc describe node <node-name> - Inspect failing nodes",
-                "oc top nodes - Check resource utilization"
+                "Review cluster-scoped-resources/core/nodes.yaml for NotReady conditions",
+                "Check host_service_logs/ and node-related logs in the bundle",
             ])
             long_term_fixes.extend([
-                "Scale up cluster resources if capacity issues detected",
-                "Review node maintenance schedules",
-                "Implement node monitoring and alerting"
+                "Review node capacity and maintenance history from bundle timestamps",
             ])
-        
+
         if "pods" in components_affected:
             immediate_actions.extend([
-                "oc get pods --all-namespaces | grep -v Running - Find problematic pods",
-                "oc describe pod <pod-name> -n <namespace> - Check pod events",
-                "oc logs <pod-name> -n <namespace> - Review pod logs"
+                "Search namespaces/ for non-Running pods and review pod logs",
+                "Check namespaces/*/core/events.yaml for CrashLoopBackOff and OOM events",
             ])
             long_term_fixes.extend([
-                "Review resource quotas and limits",
-                "Optimize container image sizes",
-                "Implement pod disruption budgets"
+                "Review resource requests/limits in deployment YAML from the bundle",
             ])
-        
+
         if "storage" in components_affected:
             immediate_actions.extend([
-                "oc get pv,pvc --all-namespaces - Check storage status",
-                "oc get storageclass - Verify storage classes",
-                "oc describe pv <pv-name> - Check persistent volume details"
+                "Review cluster-scoped-resources/core/persistentvolumes.yaml in the bundle",
+                "Check PVC status YAML under relevant namespaces/",
             ])
             long_term_fixes.extend([
-                "Review storage backend health",
-                "Implement storage monitoring",
-                "Plan for storage capacity expansion"
+                "Verify storage backend health once cluster access is restored",
             ])
-        
-        # Default actions if no specific issues found
+
         if not immediate_actions:
             immediate_actions = [
-                "oc get nodes,pods --all-namespaces - Overall cluster status",
-                "oc get events --all-namespaces --sort-by=.lastTimestamp - Recent events",
-                "oc top nodes,pods --all-namespaces - Resource utilization"
+                "Review cluster-scoped-resources/ for cluster-wide resource status",
+                "Check namespaces/ for workload and event data",
+                "Inspect static-pods/ and host_service_logs/ if present",
             ]
         
         if not long_term_fixes:
@@ -1550,48 +1886,41 @@ class MustGatherAnalyzer:
         return immediate_actions, long_term_fixes
 
     def _generate_investigation_steps(self) -> List[str]:
-        """Generate focused follow-up investigation steps"""
+        """Generate follow-up steps referencing bundle contents only."""
         steps = []
-        
-        # Based on issues found, suggest specific investigations
+
         critical_issues = [i for i in self.issues if i.severity == "critical"]
         components = set([i.component for i in critical_issues])
-        
+
         if "operators" in components:
-            steps.append("Verify etcd cluster health - check etcd member status and leader election")
-            steps.append("Check API server logs for authentication/authorization issues")
-        
+            steps.append("Review cluster-scoped-resources/config.openshift.io/clusteroperators/ YAML conditions")
+            steps.append("Check namespaces/openshift-etcd/ and openshift-kube-apiserver/ pod logs in bundle")
+
         if "nodes" in components:
-            steps.append("Review kubelet logs on affected nodes for detailed error messages")
-            steps.append("Check node disk I/O and network connectivity to control plane")
-        
+            steps.append("Review cluster-scoped-resources/core/nodes.yaml and host_service_logs/ in bundle")
+
         if "storage" in components:
-            steps.append("Verify storage backend accessibility and performance")
-            steps.append("Check CSI driver logs and storage provider status")
-        
+            steps.append("Review PV/PVC YAML and CSI pod logs under namespaces/ in bundle")
+
         if "network" in components:
-            steps.append("Test DNS resolution from problematic pods")
-            steps.append("Verify SDN/OVN configuration and pod network connectivity")
-        
-        # Data gaps and missing information
+            steps.append("Check network.openshift.io resources and openshift-ovn-kubernetes namespace logs")
+
         missing_data = []
         if len(self.relevant_snippets) < 3:
-            missing_data.append("Additional log files for complete analysis")
+            missing_data.append("additional log files in the bundle (host_service_logs/, audit_logs/)")
         if not self.key_features.get("cluster_version"):
-            missing_data.append("Cluster version information")
-        
+            missing_data.append("cluster-scoped-resources/config.openshift.io/clusterversions.yaml")
+
         if missing_data:
-            steps.append(f"Gather missing data: {', '.join(missing_data)}")
-        
-        # Default investigation steps
+            steps.append(f"Review in bundle: {', '.join(missing_data)}")
+
         if not steps:
             steps = [
-                "Monitor cluster metrics for trending issues",
-                "Review recent cluster changes and deployments",
-                "Check external dependencies and infrastructure",
-                "Verify cluster networking and security policies"
+                "Run focused ai-helpers scripts on this bundle (clusteroperators, pods, events)",
+                "Cross-reference SRE findings with namespaces/*/pod logs",
+                "For live triage after cluster access is restored, use cluster-debugger",
             ]
-        
+
         return steps
 
     def _assess_analysis_confidence(self) -> Tuple[str, List[str]]:
@@ -1742,7 +2071,7 @@ class MustGatherAnalyzer:
             formatted_report += f"• {impact_item}\n"
         
         formatted_report += f"""
-🛠️ IMMEDIATE ACTIONS:
+📂 BUNDLE INVESTIGATION STEPS (offline — no live cluster required):
 """
         for i, action in enumerate(sre_report.immediate_actions, 1):
             formatted_report += f"{i}. {action}\n"
@@ -1754,7 +2083,7 @@ class MustGatherAnalyzer:
 📊 CONFIDENCE: {sre_report.confidence_level} {sre_report.severity_emoji}
 
 ---
-*OpenShift Must-Gather Analysis | Professional SRE Incident Response*"""
+*Offline must-gather analysis — for live oc triage use cluster-debugger*"""
         
         return formatted_report
 
@@ -1802,7 +2131,7 @@ async def analyze_mustgather_bundle(
         analyzer = MustGatherAnalyzer()
         
         # Perform analysis
-        results = analyzer.analyze_bundle(bundle_path)
+        results = analyzer.analyze_bundle(bundle_path, detailed_analysis=detailed_analysis)
         
         # Format the SRE diagnostic report for presentation
         if results["status"] == "success" and "sre_diagnostic_report" in results:
@@ -1811,19 +2140,8 @@ async def analyze_mustgather_bundle(
             formatted_sre_report = analyzer.format_sre_diagnostic_report(sre_report_obj)
             results["formatted_sre_report"] = formatted_sre_report
         
-        # Enhance with LLM analysis if available
-        try:
-            from workshop_mcp_server.src.tools.llm_provider import analyze_mustgather as llm_analyze, is_available
-            if is_available() and results.get("status") == "success":
-                summary_text = results.get("formatted_sre_report", "")
-                if not summary_text:
-                    summary_text = json.dumps(results.get("cluster_health", {}), indent=2)
-                llm_insights = llm_analyze(summary_text)
-                if llm_insights:
-                    results["llm_enhanced_analysis"] = llm_insights
-                    results["mode"] = "llm_enhanced"
-        except Exception as llm_err:
-            logger.warning(f"LLM enhancement unavailable: {llm_err}")
+        # Enhance with LLM analysis if available (disabled — offline bundle only)
+        # LLM was generating live oc/SSH runbooks inappropriate for must-gather.
 
         # Add metadata
         results.update({

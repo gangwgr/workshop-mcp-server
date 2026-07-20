@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import sys
 import os
 import re
+import json
 
 # Load .env file before anything else (always overrides shell env)
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')
@@ -1962,6 +1963,56 @@ def api_debug_ocp_test():
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
+@app.route('/api/mustgather-scripts', methods=['GET'])
+def api_mustgather_scripts_list():
+    """List ai-helpers must-gather analysis scripts."""
+    try:
+        from mustgather_scripts import list_scripts, QUICK_PRESETS
+        return jsonify({
+            'status': 'success',
+            'scripts': list_scripts(),
+            'presets': [
+                {'id': k, 'label': v['label'], 'scripts': v['scripts']}
+                for k, v in QUICK_PRESETS.items()
+            ],
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/run-mustgather-script', methods=['POST'])
+def api_run_mustgather_script():
+    """Run a single must-gather analysis script (ai-helpers)."""
+    try:
+        from mustgather_scripts import run_script, run_preset
+
+        data = request.json or {}
+        bundle_path = (data.get('bundle_path') or '').strip()
+        if not bundle_path:
+            return jsonify({'status': 'error', 'error': 'bundle_path is required'}), 400
+
+        preset_id = data.get('preset')
+        if preset_id:
+            return jsonify(run_preset(preset_id, bundle_path))
+
+        script_id = data.get('script_id')
+        if not script_id:
+            return jsonify({'status': 'error', 'error': 'script_id or preset is required'}), 400
+
+        result = run_script(
+            script_id=script_id,
+            bundle_path=bundle_path,
+            namespace=data.get('namespace') or None,
+            problems_only=bool(data.get('problems_only')),
+            event_type=data.get('event_type') or None,
+            count=data.get('count'),
+        )
+        status_code = 200 if result.get('status') == 'success' else 500
+        return jsonify(result), status_code
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/api/analyze-mustgather', methods=['POST'])
 def api_analyze_mustgather():
     """API endpoint for must-gather analysis."""
@@ -1998,6 +2049,179 @@ def api_analyze_mustgather():
         return jsonify(result)
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
+
+@app.route('/api/analyze-component', methods=['POST'])
+def api_analyze_component():
+    """LLM-powered deep analysis for a specific component from must-gather data."""
+    try:
+        from workshop_mcp_server.src.tools.llm_provider import generate, is_available
+        if not is_available():
+            return jsonify({'status': 'error', 'error': 'LLM not available'}), 500
+
+        data = request.json
+        component = data.get('component', '')
+        script_output = data.get('script_output', '')
+        issues = data.get('issues', [])
+        critical_logs = data.get('critical_logs', [])
+        cluster_health = data.get('cluster_health', {})
+        sre_report = data.get('sre_report', '')
+
+        if not component:
+            return jsonify({'status': 'error', 'error': 'component is required'}), 400
+
+        import json
+        issues_text = "\n".join([
+            f"- [{i.get('severity','?').upper()}] {i.get('title','')}: {i.get('description','')}"
+            for i in issues[:15]
+        ])
+        logs_text = "\n".join([
+            f"- [{l.get('tag','log')}] {l.get('file','')}: {l.get('message','')}"
+            for l in critical_logs[:20]
+        ])
+
+        # Extract SRE report text
+        sre_text = ''
+        if isinstance(sre_report, dict):
+            sre_text = f"PRIMARY ISSUE: {sre_report.get('primary_issue', '')}\n"
+            sre_text += f"ROOT CAUSE: {sre_report.get('root_cause_summary', '')}\n"
+            sre_text += f"EVIDENCE: {sre_report.get('evidence', '')}\n"
+            sre_text += f"IMPACT: {sre_report.get('impact', '')}"
+        elif isinstance(sre_report, str):
+            sre_text = sre_report[:2000]
+
+        # Load past user corrections as context
+        learnings_context = _get_relevant_learnings(component, issues_text)
+        learnings_section = ""
+        if learnings_context:
+            learnings_section = f"""
+
+IMPORTANT — PAST USER CORRECTIONS (learn from these):
+{learnings_context}
+Use these corrections to avoid repeating the same mistakes. If a user previously told you
+the real issue was X, prioritize that pattern when you see similar evidence."""
+
+        system_prompt = f"""You are an expert OpenShift/Kubernetes SRE analyzing an OFFLINE must-gather bundle.
+You must provide a precise, actionable root-cause analysis based ONLY on the evidence provided.
+Focus on the PRIMARY root cause — not symptoms. If the cluster has a stuck upgrade, say so directly.
+Do NOT speculate about "resource exhaustion" or "etcd performance" unless logs explicitly show it.
+Structure your answer as:
+1. ROOT CAUSE (one sentence — the primary issue)
+2. EVIDENCE (what data proves this)
+3. CASCADING EFFECTS (what other symptoms are caused by the root issue)
+4. REMEDIATION (specific steps using bundle paths, no live commands)
+Be concise — max 400 words.{learnings_section}"""
+
+        prompt = f"""Analyze this OpenShift cluster must-gather bundle:
+
+CLUSTER STATUS: {cluster_health.get('status', 'unknown').upper()} — {cluster_health.get('summary', '')}
+Critical issues: {cluster_health.get('critical_issues', 0)}, Warnings: {cluster_health.get('warnings', 0)}
+
+SRE DIAGNOSTIC (already identified):
+{sre_text if sre_text else 'Not available'}
+
+SCRIPT OUTPUT (operator status, pod status, cluster version):
+{script_output[:4000] if script_output else 'No script output'}
+
+DETECTED ISSUES:
+{issues_text if issues_text else 'None'}
+
+CRITICAL LOGS:
+{logs_text if logs_text else 'None'}
+
+Provide root-cause analysis:"""
+
+        result = generate(prompt, system=system_prompt)
+        if not result:
+            return jsonify({'status': 'error', 'error': 'LLM returned empty response'}), 500
+
+        return jsonify({
+            'status': 'success',
+            'analysis': result,
+            'component': component
+        })
+    except ImportError:
+        return jsonify({'status': 'error', 'error': 'LLM provider not available'}), 500
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+MUSTGATHER_FEEDBACK_FILE = os.path.join(os.path.dirname(__file__), 'mustgather_learnings.json')
+
+
+def _load_learnings():
+    """Load stored user corrections/learnings."""
+    if os.path.exists(MUSTGATHER_FEEDBACK_FILE):
+        try:
+            with open(MUSTGATHER_FEEDBACK_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def _save_learning(entry):
+    """Save a new user correction."""
+    learnings = _load_learnings()
+    learnings.append(entry)
+    # Keep last 50 learnings
+    learnings = learnings[-50:]
+    with open(MUSTGATHER_FEEDBACK_FILE, 'w') as f:
+        json.dump(learnings, f, indent=2)
+
+
+def _get_relevant_learnings(component, issues_text):
+    """Get learnings relevant to the current analysis."""
+    learnings = _load_learnings()
+    if not learnings:
+        return ''
+
+    relevant = []
+    for l in learnings[-20:]:
+        # Match by component or by overlapping keywords
+        if (l.get('component', '').lower() in component.lower() or
+            component.lower() in l.get('component', '').lower() or
+            any(kw in issues_text.lower() for kw in l.get('keywords', []))):
+            relevant.append(l)
+
+    if not relevant:
+        # Show last 5 general learnings as context
+        relevant = learnings[-5:]
+
+    if relevant:
+        lines = []
+        for r in relevant[-5:]:
+            lines.append(f"- [{r.get('component', '?')}] User correction: {r.get('correction', '')}")
+        return "\n".join(lines)
+    return ''
+
+
+@app.route('/api/mustgather-feedback', methods=['POST'])
+def api_mustgather_feedback():
+    """Store user feedback/correction for must-gather analysis."""
+    try:
+        data = request.json
+        component = data.get('component', '')
+        correction = data.get('correction', '')
+        timestamp = data.get('timestamp', '')
+
+        if not correction:
+            return jsonify({'status': 'error', 'error': 'correction is required'}), 400
+
+        # Extract keywords from the correction for future matching
+        keywords = [w.lower() for w in correction.split() if len(w) > 4][:10]
+
+        entry = {
+            'component': component,
+            'correction': correction,
+            'keywords': keywords,
+            'timestamp': timestamp
+        }
+        _save_learning(entry)
+
+        return jsonify({'status': 'success', 'message': 'Feedback saved'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 
 @app.route('/api/chat-mustgather', methods=['POST'])
 def api_chat_mustgather():
@@ -2057,6 +2281,12 @@ def _build_chat_context(analysis):
         context_parts.append(f"\nAnomaly Status: {anomaly.get('status', 'unknown')}")
         context_parts.append(f"Severity: {anomaly.get('severity', 'unknown')}")
 
+    # Add focused script output (cluster version, operators, pods, nodes)
+    if analysis.get('unified_report'):
+        context_parts.append(f"\nComplete Diagnostic Report:\n{analysis['unified_report'][:4000]}")
+    elif analysis.get('script_output'):
+        context_parts.append(f"\nFocused Script Output:\n{analysis['script_output'][:3000]}")
+
     return "\n".join(context_parts)
 
 def _generate_answer(question, context, analysis):
@@ -2067,9 +2297,11 @@ def _generate_answer(question, context, analysis):
         if is_available():
             import json
             context_str = json.dumps(analysis, indent=2, default=str)[:3000]
-            system = """You are an expert OpenShift SRE analyzing must-gather bundles. 
-Answer the user's question based on the analysis context. Be specific, concise, and actionable.
-Include relevant oc commands and resource references when helpful."""
+            system = """You are an expert OpenShift SRE analyzing an OFFLINE must-gather bundle.
+The user does NOT have live cluster access. Answer only from the analysis context.
+Do NOT suggest live oc, ssh, crictl, or systemctl commands.
+Reference bundle paths (cluster-scoped-resources/, namespaces/, static-pods/) when helpful.
+For live triage, mention cluster-debugger only if the user explicitly asks about live access."""
             prompt = f"Must-gather analysis context:\n{context_str}\n\nUser question: {question}"
             llm_answer = generate(prompt, system=system)
             if llm_answer:
@@ -2206,6 +2438,204 @@ Include relevant oc commands and resource references when helpful."""
 
         return answer
 
+@app.route('/api/cluster-debugger-workflows', methods=['GET'])
+def api_cluster_debugger_workflows():
+    """List focused oc diagnostic workflows for cluster debugger."""
+    try:
+        from cluster_debugger_commands import list_workflows, QUICK_PRESETS
+        return jsonify({
+            'status': 'success',
+            'workflows': list_workflows(),
+            'presets': [
+                {'id': k, 'label': v['label'], 'workflows': v['workflows']}
+                for k, v in QUICK_PRESETS.items()
+            ],
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/run-cluster-debugger-workflow', methods=['POST'])
+def api_run_cluster_debugger_workflow():
+    """Run a focused oc diagnostic workflow or preset."""
+    try:
+        from cluster_debugger_commands import run_workflow, run_preset
+
+        data = request.json or {}
+        oc_path = data.get('oc_path') or None
+        kubeconfig_path = data.get('kubeconfig_path') or None
+        namespace = data.get('namespace') or None
+        component = data.get('component') or None
+        operator = data.get('operator') or None
+
+        preset_id = data.get('preset')
+        if preset_id:
+            result = run_preset(
+                preset_id,
+                oc_path=oc_path,
+                kubeconfig_path=kubeconfig_path,
+                namespace=namespace,
+                component=component,
+                operator=operator,
+            )
+            status_code = 200 if result.get('status') in ('success', 'partial') else 500
+            return jsonify(result), status_code
+
+        workflow_id = data.get('workflow_id')
+        if not workflow_id:
+            return jsonify({'status': 'error', 'error': 'workflow_id or preset is required'}), 400
+
+        result = run_workflow(
+            workflow_id,
+            oc_path=oc_path,
+            kubeconfig_path=kubeconfig_path,
+            namespace=namespace,
+            component=component,
+            operator=operator,
+        )
+        status_code = 200 if result.get('status') in ('success', 'partial') else 500
+        return jsonify(result), status_code
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/analyze-triage-output', methods=['POST'])
+def api_analyze_triage_output():
+    """Analyze oc triage output using LLM."""
+    try:
+        from workshop_mcp_server.src.tools.llm_provider import generate, is_available
+        if not is_available():
+            return jsonify({'status': 'error', 'error': 'LLM not available'}), 503
+
+        data = request.json or {}
+        workflow_label = data.get('workflow_label', 'oc triage')
+        oc_output = data.get('oc_output', '')
+
+        if not oc_output or len(oc_output.strip()) < 10:
+            return jsonify({'status': 'error', 'error': 'No output to analyze'}), 400
+
+        system_prompt = """You are an OpenShift SRE expert reading ACTUAL oc command output.
+RULES:
+- ONLY state facts you can directly see in the output. Do NOT invent or assume data not shown.
+- If pods are listed as Running with all containers Ready, they ARE healthy.
+- If a command shows [OK], it succeeded. If [EXIT 1] or [EXIT 2], it failed — explain the error.
+- Look for: pod status, restart counts, error messages in logs, events, operator conditions.
+- CRITICAL: You MUST analyze and mention EVERY pod shown in the output. The output contains multiple "========" command separators — each pod has its own describe/logs/events block. List each pod by name with its status.
+- Format your response as:
+  STATUS: ✅ Healthy / ⚠️ Warning / ❌ Critical
+  SUMMARY: 2-4 lines covering ALL pods/components
+  POD STATUS:
+  - pod-name-1: status (restart count, state)
+  - pod-name-2: status (restart count, state)
+  - pod-name-3: status (restart count, state)
+  ISSUES (if any): bullet list of specific problems with evidence"""
+
+        # Smart truncation: strip noise, keep diagnostically important lines
+        def _compress_output(text):
+            """Remove verbose noise like repeated env vars, mounts, volumes for multi-pod describe output."""
+            lines = text.split('\n')
+            compressed = []
+            skip_env = False
+            skip_mounts = False
+            skip_volumes = False
+            for line in lines:
+                stripped = line.strip()
+
+                # Detect section boundaries for each container in oc describe
+                if stripped.startswith('Environment:'):
+                    skip_env = True
+                    compressed.append(line.split('Environment')[0] + 'Environment: [stripped for brevity]')
+                    continue
+                if skip_env:
+                    # End env section on next non-indented or known field
+                    if stripped == '' or (not line.startswith('      ') and stripped and not stripped.startswith('NODE_') and not stripped.startswith('ETCD') and not stripped.startswith('ALL_')):
+                        skip_env = False
+                    else:
+                        continue
+
+                if stripped.startswith('Mounts:'):
+                    skip_mounts = True
+                    compressed.append(line.split('Mounts')[0] + 'Mounts: [stripped]')
+                    continue
+                if skip_mounts:
+                    if stripped == '' or (not line.startswith('      ') and stripped and ':' in stripped):
+                        skip_mounts = False
+                    else:
+                        continue
+
+                if stripped.startswith('Volumes:'):
+                    skip_volumes = True
+                    compressed.append('  Volumes: [stripped]')
+                    continue
+                if skip_volumes:
+                    if stripped.startswith('Conditions:') or stripped.startswith('QoS') or stripped.startswith('Events:') or (stripped.startswith('===') ):
+                        skip_volumes = False
+                    else:
+                        continue
+
+                # Skip long image hash lines
+                if 'sha256:' in stripped and len(stripped) > 80:
+                    continue
+                # Skip cipher/TLS config noise
+                if 'CIPHER_SUITES' in stripped or 'TLS_AES' in stripped or 'TLS_ECDHE' in stripped:
+                    continue
+                # Skip feature-gates lines (massive list in KubeAPIServer YAML)
+                if stripped.startswith('- ') and '=' in stripped and stripped.endswith(('=true', '=false')):
+                    continue
+                # Skip YAML config paths (cert files, key files)
+                if ('certFile:' in stripped or 'keyFile:' in stripped) and '/etc/kubernetes' in stripped:
+                    continue
+                # Skip cipherSuites list items
+                if stripped.startswith('- TLS_'):
+                    continue
+                compressed.append(line)
+            return '\n'.join(compressed)
+
+        processed = _compress_output(oc_output)
+
+        if len(processed) > 8000:
+            lines = processed.split('\n')
+            important_keywords = ('error', 'degraded', 'not available',
+                                  'failed', 'notready', 'crashloop', 'oomkilled',
+                                  'running', 'pending', 'terminating', 'imagepullbackoff',
+                                  'restart count', 'restarts',
+                                  '1/1', '0/1', '2/2', '0/2', '3/3', '0/3', '4/4', '5/5',
+                                  '========', '[ok]', '[exit',
+                                  'name:', 'status:', 'ready:', 'available',
+                                  'progressing', 'message:', 'conditions:',
+                                  'nodename', 'nodestatuses', 'revision')
+            important_lines = []
+            other_lines = []
+            for line in lines:
+                lower = line.lower()
+                if any(kw.lower() in lower for kw in important_keywords):
+                    important_lines.append(line)
+                else:
+                    other_lines.append(line)
+
+            important_text = '\n'.join(important_lines)
+            if len(important_text) > 7500:
+                truncated = important_text[:7500]
+            else:
+                remaining_budget = 7500 - len(important_text)
+                other_text = '\n'.join(other_lines[:120])[:remaining_budget]
+                truncated = important_text + "\n\n--- Additional context ---\n" + other_text
+        else:
+            truncated = processed
+
+        prompt = f"""Analyze this oc output from "{workflow_label}":
+
+{truncated}
+
+Summarize the health status of ALL components shown. Base your answer ONLY on the data above."""
+
+        analysis = generate(prompt, system=system_prompt)
+        return jsonify({'status': 'success', 'analysis': analysis})
+
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/api/debug-cluster', methods=['POST'])
 def api_debug_cluster():
     """API endpoint for cluster debugging with test automation."""
@@ -2244,6 +2674,63 @@ def api_debug_cluster():
             loop.close()
 
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+@app.route('/api/generate-cluster-test', methods=['POST'])
+def api_generate_cluster_test():
+    """Lightweight endpoint to generate test case without re-running full diagnostics."""
+    try:
+        data = request.json
+        issue_description = data.get('issue_description', '')
+        namespace = data.get('namespace')
+        component = data.get('component')
+
+        if not issue_description or not issue_description.strip():
+            return jsonify({'status': 'error', 'error': 'Issue description is required'}), 400
+
+        from workshop_mcp_server.src.tools.ocp_cluster_debugger_agent_tool import OCPClusterDebuggerAgent
+        agent = OCPClusterDebuggerAgent()
+        issue_analysis = agent._analyze_issue_description(issue_description)
+
+        # Try LLM-powered test generation first
+        test_case = None
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import generate as llm_generate, is_available
+            if is_available():
+                llm_prompt = f"""Generate a Go/Ginkgo e2e test case for this OpenShift cluster scenario:
+
+Issue: {issue_description}
+Namespace: {namespace or 'openshift-*'}
+Component: {component or 'general'}
+
+Generate a complete, runnable Go test using:
+- k8s.io/client-go
+- github.com/onsi/ginkgo/v2
+- github.com/onsi/gomega
+
+The test should validate the issue is resolved (e.g., pod is healthy, operator not degraded).
+Return ONLY the Go code, no explanation."""
+
+                llm_code = llm_generate(llm_prompt, system="You are an expert Go/Kubernetes test writer. Return only valid Go code.")
+                if llm_code and len(llm_code.strip()) > 50:
+                    test_case = {
+                        "test_name": f"Test_{issue_description[:50].replace(' ', '_')}",
+                        "description": f"Validates: {issue_description}",
+                        "go_code": llm_code.strip(),
+                        "format": "go"
+                    }
+        except Exception as llm_err:
+            logger.warning(f"LLM test generation failed: {llm_err}")
+
+        # Fallback to template-based generation
+        if not test_case:
+            test_case = agent._generate_test_case(issue_description, issue_analysis, namespace, component)
+            if test_case:
+                test_case["test_name"] = f"Test_{issue_analysis.get('issue_type', 'cluster')}_{(component or 'health')}"
+                test_case["go_code"] = test_case.get("code", "")
+
+        return jsonify({'status': 'success', 'test_case': test_case})
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
