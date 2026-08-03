@@ -183,3 +183,6 @@ build.log
 *.tmp
 *.bak
 .idea
+
+# RAG vector store (runtime data, regenerated on indexing)
+vector_store/

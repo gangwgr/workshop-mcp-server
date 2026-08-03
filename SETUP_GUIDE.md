@@ -17,46 +17,38 @@ The Web GUI is a fully standalone web application. The MCP server can connect to
 
 ```
 workshop-mcp-server/
-├── .env                          # All configuration (LLM, Jira, Ollama, Claude)
+├── .env                          # All configuration (LLM, Ollama, Claude)
+├── .gitignore
 ├── mcp-config.json               # MCP client configuration (for Cursor/Claude Desktop)
+├── SETUP_GUIDE.md                # This file
 ├── web_gui/
 │   ├── app.py                    # Flask web application (port 5001)
 │   ├── requirements.txt          # Python dependencies
 │   ├── ollama_client.py          # Ollama LLM client
-│   ├── templates/                # All HTML pages
-│   │   ├── base.html             # Nav layout
-│   │   ├── code_review.html      # Code review tool
-│   │   ├── pr_review.html        # GitHub PR review
-│   │   ├── ocp_testing.html      # OpenShift test generator
-│   │   ├── test_plan_generator.html  # QE test plan from docs
-│   │   ├── regression_test_agent.html # Bug → regression tests
-│   │   ├── jira_manager.html     # Jira integration
-│   │   ├── polarion_qa.html      # Polarion test case search
-│   │   ├── mustgather_analyzer.html  # Must-gather analysis
-│   │   ├── cluster_debugger.html # Cluster debugging
-│   │   ├── code_assistant.html   # AI code assistant
-│   │   ├── knowledge_base.html   # RAG knowledge base
-│   │   ├── ai_chat.html          # General AI chat
-│   │   ├── work_reports.html     # Work report generator
+│   ├── cluster_debugger_commands.py  # oc triage workflow definitions
+│   ├── mustgather_learnings.json # Stored user feedback for Must-Gather
+│   ├── templates/
+│   │   ├── base.html             # Nav layout (shared header)
+│   │   ├── index.html            # Dashboard home
+│   │   ├── cluster_debugger.html # Live cluster debugging
+│   │   ├── mustgather_analyzer.html  # Must-gather bundle analysis
+│   │   ├── knowledge_base.html   # RAG Knowledge Base management
 │   │   └── settings.html         # LLM/config settings
 │   └── static/css/               # Stylesheets
 ├── workshop_mcp_server/
+│   ├── utils/
+│   │   └── pylogger.py           # Structured logging utility
 │   └── src/
 │       ├── main.py               # MCP protocol server (FastMCP)
 │       └── tools/
 │           ├── llm_provider.py           # Multi-LLM backend (Ollama/Claude)
-│           ├── jira_manager_tool.py      # Jira API integration
-│           ├── polarion_search_tool.py   # Polarion ALM search
-│           ├── line_by_line_code_reviewer_tool.py  # Code review
-│           ├── github_pr_commenter_tool.py  # GitHub PR comments
-│           ├── ocp_test_case_generator_tool.py    # OCP test gen
-│           ├── ocp_cluster_debugger_agent_tool.py # Cluster debug
-│           ├── mustgather_analyzer_tool.py  # Must-gather analyzer
+│           ├── ocp_cluster_debugger_agent_tool.py # Live cluster debugging
+│           ├── mustgather_analyzer_tool.py  # Must-gather analysis
 │           └── rag/                       # RAG/Knowledge Base
-│               ├── rag_tool.py
-│               ├── doc_ingester.py
-│               └── kb_context.py
-└── skills/                       # Cursor Skills (optional)
+│               ├── rag_tool.py            # RAG query & indexing functions
+│               ├── doc_ingester.py        # ChromaDB ingestion engine
+│               └── kb_context.py          # KB context injection helper
+└── vector_store/                  # ChromaDB data (auto-created, gitignored)
 ```
 
 ---
@@ -67,7 +59,6 @@ workshop-mcp-server/
 
 - **Python 3.10+**
 - **Ollama** (for local LLMs) — https://ollama.com
-- **gh CLI** (for GitHub PR features) — `brew install gh`
 - **Google Cloud SDK** (only if using Claude via Vertex AI)
 
 ### Step 1: Clone & Setup Environment
@@ -81,7 +72,6 @@ source web_gui/venv/bin/activate
 
 # Install dependencies
 pip install -r web_gui/requirements.txt
-pip install flask requests chromadb sentence-transformers pyyaml jira anthropic google-auth
 ```
 
 ### Step 2: Configure `.env`
@@ -104,16 +94,8 @@ CLAUDE_CODE_USE_VERTEX=1
 ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project
 CLOUD_ML_REGION=global
 
-# Jira — optional (can configure via GUI)
-JIRA_BASE_URL=https://your-company.atlassian.net/
-JIRA_USERNAME=you@company.com
-JIRA_API_TOKEN=your-token
-
 # RAG
 RAG_ENABLED=true
-
-# Git (for work reports)
-GIT_AUTHOR_NAME=Your Name
 ```
 
 ### Step 3: Start Ollama (Local LLMs)
@@ -126,12 +108,12 @@ brew install ollama
 ollama serve
 
 # Pull models (in another terminal)
-ollama pull llama3.3:latest
-ollama pull qwen2.5-coder:32b      # optional, large model
-ollama pull nomic-embed-text        # for RAG embeddings
+ollama pull llama3.3:latest         # Chat/analysis model
+ollama pull nomic-embed-text        # Required for RAG embeddings
+ollama pull qwen2.5-coder:32b      # Optional — larger coding model
 ```
 
-### Step 4: Run the Web GUI (No Cursor needed)
+### Step 4: Run the Web GUI
 
 ```bash
 cd /Users/rgangwar/hackathon/workshop-mcp-server/web_gui
@@ -149,6 +131,48 @@ This mode exposes tools via the MCP protocol for AI clients:
 cd /Users/rgangwar/hackathon/workshop-mcp-server
 PYTHONPATH=. python -m workshop_mcp_server.src.main
 ```
+
+---
+
+## Tools & Features
+
+### 1. Cluster Debugger (`/cluster-debugger`)
+
+AI-powered live cluster diagnostics with test automation.
+
+- **AI Debug & Analyze** — Describe issue in natural language, AI runs `oc` commands and analyzes output
+- **Focused oc Triage** — Predefined workflows (Pod CrashLoop, API Server, etcd, Nodes, Network, Storage, etc.)
+- **Test Case Generation** — Go/Ginkgo test cases generated from diagnostic context
+- **Fix Recommendations** — Specific remediation commands
+- **RAG-Enhanced** — KB articles injected into LLM prompts for better diagnosis
+
+### 2. Must-Gather Analyzer (`/mustgather-analyzer`)
+
+Deep analysis of OpenShift must-gather bundles.
+
+- Upload `.tar.gz`, `.tar`, `.zip` or extracted directories
+- Component-focused analysis (etcd, nodes, network, storage, etc.)
+- Anomaly detection with scoring
+- AI root-cause analysis with evidence and remediation
+- Feedback learning — correct the AI, it remembers
+- **RAG-Enhanced** — KB solutions injected into root-cause analysis
+
+### 3. Knowledge Base / RAG (`/knowledge-base`)
+
+Index documents to enhance AI analysis across all tools.
+
+- **Index local folders** — Point to docs, runbooks, code repos on disk
+- **Index Git repos** — Clone and index any git repository
+- **Index web docs** — Fetch and index documentation URLs (with crawl option)
+- **Ask KB** — Query the knowledge base with natural language
+- **Auto-injection** — Relevant KB context is automatically added to Cluster Debugger and Must-Gather LLM prompts
+- Supports: `.go`, `.py`, `.md`, `.yaml`, `.json`, `.sh`, `.pdf`, and more
+
+### 4. AI Chat (in navigation bar)
+
+- LLM chat with KB context injection
+- Switch between Ollama/Claude from the UI
+- Available on all pages via the mode selector
 
 ---
 
@@ -202,56 +226,57 @@ Use the same `mcp-config.json` included in the project root.
 
 ---
 
-## Available Tools (via MCP Protocol)
-
-| Tool | Description |
-|------|-------------|
-| `search_test_cases` | Search Polarion for test cases |
-| `get_test_case_details` | Get detailed Polarion test case |
-| `query_polarion_api` | Raw Polarion API query |
-| `test_jira_connection` | Test Jira connectivity |
-| `get_issue` | Fetch Jira issue details |
-| `search_issues` | JQL search on Jira |
-| `get_high_priority_bugs` | Find high-priority bugs |
-| `get_team_issues` | Get team's issues |
-| `generate_test_cases_from_jira` | AI test gen from Jira issue |
-| `generate_test_plan_from_jira` | AI test plan from Jira issue |
-| `review_code_line_by_line` | AI code review |
-| `post_pr_review_comments` | Post review comments on GitHub PR |
-| `generate_ocp_test_case` | Generate OpenShift test cases |
-| `generate_oc_cli_test` | Generate oc CLI test scripts |
-| `execute_ocp_test_step_by_step` | Execute OCP tests step by step |
-| `debug_ocp_test_failure` | Debug test failures |
-| `validate_ocp_test_input` | Validate test inputs |
-| `analyze_mustgather_bundle` | Analyze must-gather bundles |
-| `debug_openshift_cluster` | AI cluster debugging |
-| `ask_local_llm` | Ask the configured LLM directly |
-| `switch_llm_mode` | Switch between Ollama/Claude/Template |
-| `ask_docs` | RAG query over indexed docs |
-| `index_docs` / `index_repo` / `index_web` | Index documents for RAG |
-| `list_knowledge_bases` / `delete_knowledge_base` | Manage KB |
-
----
-
 ## Web GUI Pages
 
 | URL | Feature |
 |-----|---------|
-| `/` | Dashboard home |
-| `/code-review` | AI code review |
-| `/pr-review` | GitHub PR review |
-| `/ocp-testing` | OpenShift test generation |
-| `/test-plan-generator` | Test plan from enhancement docs |
-| `/regression-test-agent` | Regression tests from bugs |
-| `/jira-manager` | Jira issue management |
-| `/polarion-qa` | Polarion test case search |
-| `/mustgather-analyzer` | Must-gather analysis |
-| `/cluster-debugger` | Cluster debugging |
-| `/code-assistant` | AI code assistant (write/edit/browse) |
+| `/` | Dashboard home — status overview |
+| `/cluster-debugger` | Live cluster debugging with AI |
+| `/mustgather-analyzer` | Must-gather bundle analysis |
 | `/knowledge-base` | RAG knowledge base management |
-| `/ai-chat` | General AI chat |
-| `/work-reports` | Daily work report generator |
 | `/settings` | LLM configuration |
+
+---
+
+## How RAG Works
+
+```
+┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Index Sources   │────▶│  ChromaDB    │────▶│  LLM Analysis   │
+│  (docs/code/web) │     │  (vectors)   │     │  (enriched)     │
+└─────────────────┘     └──────────────┘     └─────────────────┘
+        │                       │                       │
+   Index Folder            nomic-embed-text         get_kb_context()
+   Index Git Repo          embeddings              auto-injected into
+   Index Web URL           cosine similarity       every LLM prompt
+```
+
+1. **Indexing**: Documents are chunked (800 chars, 100 overlap), embedded with `nomic-embed-text`, stored in ChromaDB
+2. **Retrieval**: When a tool calls the LLM, `get_kb_context()` searches for relevant chunks (relevance > 40%)
+3. **Generation**: Retrieved context is appended to the LLM prompt, grounding responses in your indexed knowledge
+
+### Example: Enhancing Cluster Debugger with KB
+
+```bash
+# Index OpenShift troubleshooting docs
+# (via Knowledge Base page or API)
+POST /api/kb/index-web
+{
+  "url": "https://docs.openshift.com/container-platform/4.17/support/troubleshooting/troubleshooting-installations.html",
+  "collection": "ocp-docs",
+  "crawl": true
+}
+
+# Index internal runbooks
+POST /api/kb/index-folder
+{
+  "folder_path": "/path/to/team-runbooks",
+  "collection": "runbooks"
+}
+
+# Now when Cluster Debugger runs, it automatically retrieves
+# relevant KB articles and includes them in the LLM prompt
+```
 
 ---
 
@@ -270,7 +295,12 @@ pip install -r web_gui/requirements.txt
 # 3. Edit .env for that machine
 vi .env
 
-# 4. Start
+# 4. Start Ollama and pull models
+ollama serve &
+ollama pull llama3.3:latest
+ollama pull nomic-embed-text
+
+# 5. Start the app
 python web_gui/app.py
 # Access at http://remote-ip:5001
 ```
@@ -283,11 +313,13 @@ python web_gui/app.py
 |-------|-----|
 | `LLM not available` | Start Ollama: `ollama serve` |
 | `404 on model` | Pull the model: `ollama pull llama3.3:latest` |
-| `Jira credentials error` | Configure in Settings or add to `.env` |
 | `Port 5001 in use` | `lsof -ti:5001 \| xargs kill -9` |
 | `Claude not responding` | Check `ANTHROPIC_VERTEX_PROJECT_ID` and `gcloud auth` |
 | `RAG empty collection` | Index documents via Knowledge Base page first |
+| `nomic-embed-text error` | Pull embedding model: `ollama pull nomic-embed-text` |
 | `Import errors` | Ensure `PYTHONPATH` includes the project root |
+| `chromadb not found` | `pip install chromadb` |
+| `oc commands fail` | Check OC CLI Path and Kubeconfig in Cluster Debugger config |
 
 ---
 

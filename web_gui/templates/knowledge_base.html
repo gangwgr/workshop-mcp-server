@@ -1,278 +1,289 @@
 {% extends "base.html" %}
-
-{% block title %}Knowledge Base - MCP Server{% endblock %}
+{% block title %}Knowledge Base - RAG{% endblock %}
+{% block extra_css %}
+<style>
+.kb-container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.kb-header { margin-bottom: 1.5rem; }
+.kb-header h1 { font-size: 1.5rem; font-weight: 700; color: #1a202c; margin-bottom: 0.25rem; }
+.kb-header p { color: #718096; font-size: 0.9rem; }
+.kb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width: 768px) { .kb-grid { grid-template-columns: 1fr; } }
+.kb-card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1.25rem; }
+.kb-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #2d3748; }
+.kb-card h3 i { color: #805ad5; margin-right: 0.5rem; }
+.form-group { margin-bottom: 0.75rem; }
+.form-group label { display: block; font-size: 0.8rem; font-weight: 500; color: #4a5568; margin-bottom: 0.25rem; }
+.form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 0.375rem;
+    font-size: 0.85rem; transition: border 0.2s;
+}
+.form-group input:focus, .form-group textarea:focus { border-color: #805ad5; outline: none; box-shadow: 0 0 0 2px rgba(128,90,213,0.1); }
+.btn-primary { background: #805ad5; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; font-size: 0.85rem; cursor: pointer; font-weight: 500; }
+.btn-primary:hover { background: #6b46c1; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-danger { background: #e53e3e; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer; }
+.btn-danger:hover { background: #c53030; }
+.collections-list { margin-top: 1rem; }
+.collection-item { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.8rem; background: #f7fafc; border-radius: 0.375rem; margin-bottom: 0.5rem; border: 1px solid #e2e8f0; }
+.collection-item .name { font-weight: 600; color: #2d3748; font-size: 0.85rem; }
+.collection-item .count { color: #718096; font-size: 0.8rem; }
+.result-box { margin-top: 1rem; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; font-size: 0.85rem; max-height: 300px; overflow-y: auto; display: none; }
+.result-box.visible { display: block; }
+.result-box pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #805ad5; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; margin-right: 0.5rem; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.status-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
+.status-badge.success { background: #c6f6d5; color: #22543d; }
+.status-badge.error { background: #fed7d7; color: #742a2a; }
+.ask-answer { margin-top: 1rem; padding: 1rem; background: #faf5ff; border: 1px solid #e9d8fd; border-radius: 0.5rem; font-size: 0.85rem; line-height: 1.6; }
+.full-width { grid-column: 1 / -1; }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="page-header">
-        <h1><i class="fas fa-book"></i> Knowledge Base (RAG)</h1>
-        <p>Index documents, code repos, and OpenShift docs - then ask questions powered by local LLM</p>
+<div class="kb-container">
+    <div class="kb-header">
+        <h1><i class="fas fa-brain"></i> Knowledge Base (RAG)</h1>
+        <p>Index documents, code repos, and web pages to enhance Cluster Debugger and Must-Gather analysis with contextual knowledge.</p>
     </div>
 
-    <!-- LLM Selector -->
-    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:0.75rem 1rem;background:#f7fafc;border:1px solid var(--border-color);border-radius:0.5rem;">
-        <span style="font-weight:600;font-size:0.85rem;color:#4a5568;"><i class="fas fa-brain"></i> LLM:</span>
-        <select id="llm_mode_select" onchange="switchPageLLM()" style="padding:0.3rem 0.75rem;border:1px solid #e2e8f0;border-radius:0.375rem;font-size:0.85rem;background:white;">
-            <option value="">Loading models...</option>
-        </select>
-        <span id="llm_badge" style="font-size:0.75rem;padding:0.2rem 0.5rem;border-radius:9999px;background:#c6f6d5;color:#276749;">Active</span>
-    </div>
-
-    <div class="review-container">
-        <ul class="nav nav-tabs" style="list-style: none; display: flex; gap: 1rem; border-bottom: 2px solid var(--border-color); margin-bottom: 2rem;">
-            <li><a href="#" class="tab-link active" data-tab="ask">Ask Docs</a></li>
-            <li><a href="#" class="tab-link" data-tab="index">Index Docs</a></li>
-            <li><a href="#" class="tab-link" data-tab="collections">Collections</a></li>
-        </ul>
-
-        <!-- Ask Docs Tab -->
-        <div id="ask-tab" class="tab-content">
-            <div class="review-form">
-                <h3>Ask Your Knowledge Base</h3>
-                <form id="askForm">
-                    <div class="form-group">
-                        <label for="ask_collection">Collection</label>
-                        <select id="ask_collection" class="form-control">
-                            <option value="default">default</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="question">Question</label>
-                        <textarea id="question" class="form-control" rows="3"
-                                  placeholder="e.g., How does the authentication operator handle config changes?" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-lg">
-                        <i class="fas fa-search"></i> Ask
-                    </button>
-                </form>
-            </div>
-            <div id="askResults" class="review-results" style="display: none;">
-                <h2><i class="fas fa-lightbulb"></i> Answer</h2>
-                <div id="answerContent"></div>
+    <div class="kb-grid">
+        <!-- Collections Overview -->
+        <div class="kb-card">
+            <h3><i class="fas fa-database"></i> Indexed Collections</h3>
+            <p style="font-size:0.8rem;color:#718096;">Your indexed knowledge bases. These are automatically used by Cluster Debugger and Must-Gather Analyzer.</p>
+            <button class="btn-primary" onclick="loadCollections()"><i class="fas fa-sync"></i> Refresh</button>
+            <div class="collections-list" id="collectionsList">
+                <p style="color:#a0aec0;font-size:0.8rem;">Loading...</p>
             </div>
         </div>
 
-        <!-- Index Docs Tab -->
-        <div id="index-tab" class="tab-content" style="display: none;">
-            <div class="review-form">
-                <h3>Index Documents or Code</h3>
-                <form id="indexForm">
-                    <div class="form-group">
-                        <label for="index_type">Source Type</label>
-                        <select id="index_type" class="form-control">
-                            <option value="folder">Local Folder / Path</option>
-                            <option value="repo">Git Repository URL</option>
-                            <option value="web">Web URL (Documentation)</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="folderGroup">
-                        <label for="folder_path">Folder Path</label>
-                        <input type="text" id="folder_path" class="form-control"
-                               placeholder="/path/to/docs or /path/to/code-repo">
-                        <small style="color:#718096;">e.g., /Users/rgangwar/office-work/cluster-image-registry-operator</small>
-                    </div>
-                    <div class="form-group" id="repoGroup" style="display:none;">
-                        <label for="repo_url">Repository URL</label>
-                        <input type="text" id="repo_url" class="form-control"
-                               placeholder="https://github.com/openshift/api">
-                        <small style="color:#718096;">Any git URL (GitHub, GitLab, internal repos)</small>
-                        <div style="margin-top: 0.5rem;">
-                            <label for="branch">Branch</label>
-                            <input type="text" id="branch" class="form-control" value="main" placeholder="main">
-                        </div>
-                    </div>
-                    <div class="form-group" id="webGroup" style="display:none;">
-                        <label for="web_url">Documentation URL</label>
-                        <input type="text" id="web_url" class="form-control"
-                               placeholder="https://docs.openshift.com/container-platform/4.14/operators/index.html">
-                        <small style="color:#718096;">Fetches and indexes the page content (supports HTML docs)</small>
-                        <div style="margin-top: 0.5rem;">
-                            <label><input type="checkbox" id="crawl_links"> Crawl linked pages (same domain, max 20 pages)</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="idx_collection">Collection Name</label>
-                        <input type="text" id="idx_collection" class="form-control" value="default"
-                               placeholder="e.g., openshift-docs, my-team-code">
-                    </div>
-                    <div class="form-group">
-                        <label><input type="checkbox" id="include_code" checked> Include code files (.go, .py, .yaml, etc.)</label>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-lg">
-                        <i class="fas fa-database"></i> Index
-                    </button>
-                </form>
+        <!-- Index Local Folder -->
+        <div class="kb-card">
+            <h3><i class="fas fa-folder-open"></i> Index Local Folder</h3>
+            <div class="form-group">
+                <label>Folder Path *</label>
+                <input type="text" id="folderPath" placeholder="/path/to/docs or /path/to/code-repo">
             </div>
-            <div id="indexResults" class="review-results" style="display: none;">
-                <h2><i class="fas fa-check-circle"></i> Indexing Results</h2>
-                <div id="indexContent"></div>
+            <div class="form-group">
+                <label>Collection Name</label>
+                <input type="text" id="folderCollection" placeholder="default" value="default">
             </div>
+            <div class="form-group">
+                <label><input type="checkbox" id="includeCode" checked> Include code files (.go, .py, .yaml, etc.)</label>
+            </div>
+            <button class="btn-primary" id="btnIndexFolder" onclick="indexFolder()"><i class="fas fa-upload"></i> Index Folder</button>
+            <div class="result-box" id="folderResult"></div>
         </div>
 
-        <!-- Collections Tab -->
-        <div id="collections-tab" class="tab-content" style="display: none;">
-            <div class="review-form">
-                <h3>Indexed Collections</h3>
-                <div id="collectionsContent">
-                    <p style="color: #718096;">Loading collections...</p>
-                </div>
-                <button onclick="loadCollections()" class="btn btn-primary" style="margin-top:1rem;">
-                    <i class="fas fa-sync"></i> Refresh
-                </button>
+        <!-- Index Git Repo -->
+        <div class="kb-card">
+            <h3><i class="fab fa-git-alt"></i> Index Git Repository</h3>
+            <div class="form-group">
+                <label>Repository URL *</label>
+                <input type="text" id="repoUrl" placeholder="https://github.com/openshift/api">
             </div>
+            <div class="form-group">
+                <label>Branch</label>
+                <input type="text" id="repoBranch" placeholder="main" value="main">
+            </div>
+            <div class="form-group">
+                <label>Collection Name</label>
+                <input type="text" id="repoCollection" placeholder="default" value="default">
+            </div>
+            <button class="btn-primary" id="btnIndexRepo" onclick="indexRepo()"><i class="fas fa-code-branch"></i> Clone & Index</button>
+            <div class="result-box" id="repoResult"></div>
         </div>
 
-        <div id="loading" class="loading-spinner" style="display: none;">
-            <i class="fas fa-spinner fa-spin"></i>
-            <p id="loadingText">Processing...</p>
+        <!-- Index Web URL -->
+        <div class="kb-card">
+            <h3><i class="fas fa-globe"></i> Index Web Documentation</h3>
+            <div class="form-group">
+                <label>URL *</label>
+                <input type="text" id="webUrl" placeholder="https://docs.openshift.com/container-platform/4.17/operators/index.html">
+            </div>
+            <div class="form-group">
+                <label>Collection Name</label>
+                <input type="text" id="webCollection" placeholder="default" value="default">
+            </div>
+            <div class="form-group">
+                <label><input type="checkbox" id="webCrawl"> Crawl linked pages on same domain (max 20)</label>
+            </div>
+            <button class="btn-primary" id="btnIndexWeb" onclick="indexWeb()"><i class="fas fa-download"></i> Fetch & Index</button>
+            <div class="result-box" id="webResult"></div>
+        </div>
+
+        <!-- Ask Knowledge Base -->
+        <div class="kb-card full-width">
+            <h3><i class="fas fa-question-circle"></i> Ask the Knowledge Base</h3>
+            <p style="font-size:0.8rem;color:#718096;">Query your indexed documents using natural language. The LLM will answer based on retrieved context.</p>
+            <div class="form-group">
+                <label>Question *</label>
+                <textarea id="kbQuestion" rows="2" placeholder="e.g., How does etcd leader election work in OpenShift?"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Collection (leave empty to search all)</label>
+                <input type="text" id="askCollection" placeholder="default">
+            </div>
+            <button class="btn-primary" id="btnAsk" onclick="askKB()"><i class="fas fa-search"></i> Ask</button>
+            <div class="ask-answer" id="askAnswer" style="display:none;"></div>
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
 <script>
-$(document).ready(function() {
-    loadCollections();
-
-    $('.tab-link').on('click', function(e) {
-        e.preventDefault();
-        const tab = $(this).data('tab');
-        $('.tab-link').removeClass('active');
-        $(this).addClass('active');
-        $('.tab-content').hide();
-        $(`#${tab}-tab`).show();
-    });
-
-    $('#index_type').on('change', function() {
-        $('#folderGroup, #repoGroup, #webGroup').hide();
-        if ($(this).val() === 'repo') {
-            $('#repoGroup').show();
-        } else if ($(this).val() === 'web') {
-            $('#webGroup').show();
-        } else {
-            $('#folderGroup').show();
-        }
-    });
-
-    $('#askForm').on('submit', function(e) {
-        e.preventDefault();
-        const data = {
-            question: $('#question').val(),
-            collection: $('#ask_collection').val()
-        };
-        $('#loading').show();
-        $('#loadingText').text('Searching docs and generating answer...');
-        $('#askResults').hide();
-        $.ajax({
-            url: '/api/rag/ask', method: 'POST',
-            contentType: 'application/json', data: JSON.stringify(data),
-            success: function(resp) {
-                if (resp.status === 'success') {
-                    let html = '<div style="padding:1.5rem;background:white;border-radius:0.5rem;border-left:4px solid #805ad5;">';
-                    html += '<div style="white-space:pre-wrap;line-height:1.7;">' + formatMd(resp.answer) + '</div>';
-                    if (resp.sources && resp.sources.length > 0) {
-                        html += '<h4 style="margin-top:1.5rem;">Sources:</h4><ul>';
-                        resp.sources.forEach(function(s) {
-                            html += '<li><code>' + s.file + '</code> (relevance: ' + (s.relevance * 100).toFixed(0) + '%)</li>';
-                        });
-                        html += '</ul>';
-                    }
-                    html += '</div>';
-                    $('#answerContent').html(html);
-                } else {
-                    $('#answerContent').html('<p style="color:red;">' + (resp.error || 'Unknown error') + '</p>');
-                }
-                $('#askResults').show();
-            },
-            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
-            complete: function() { $('#loading').hide(); }
-        });
-    });
-
-    $('#indexForm').on('submit', function(e) {
-        e.preventDefault();
-        var indexType = $('#index_type').val();
-        var url, data;
-        if (indexType === 'repo') {
-            url = '/api/rag/index-repo';
-            data = { repo_url: $('#repo_url').val(), collection: $('#idx_collection').val(), branch: $('#branch').val() };
-        } else if (indexType === 'web') {
-            url = '/api/rag/index-web';
-            data = { web_url: $('#web_url').val(), collection: $('#idx_collection').val(), crawl: $('#crawl_links').is(':checked') };
-        } else {
-            url = '/api/rag/index';
-            data = { folder_path: $('#folder_path').val(), collection: $('#idx_collection').val(), include_code: $('#include_code').is(':checked') };
-        }
-        $('#loading').show();
-        $('#loadingText').text('Indexing documents (this may take a while)...');
-        $('#indexResults').hide();
-        $.ajax({
-            url: url, method: 'POST',
-            contentType: 'application/json', data: JSON.stringify(data),
-            success: function(resp) {
-                let html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;border-left:4px solid #48bb78;">';
-                html += '<p><strong>Status:</strong> ' + resp.status + '</p>';
-                html += '<p><strong>Files Processed:</strong> ' + (resp.files_processed || 0) + '</p>';
-                html += '<p><strong>Chunks Indexed:</strong> ' + (resp.chunks_indexed || 0) + '</p>';
-                if (resp.source_repo) html += '<p><strong>Repo:</strong> ' + resp.source_repo + '</p>';
-                if (resp.errors) html += '<p><strong>Errors:</strong> ' + resp.errors + '</p>';
-                html += '</div>';
-                $('#indexContent').html(html);
-                $('#indexResults').show();
-                loadCollections();
-            },
-            error: function(xhr) { alert('Error: ' + (xhr.responseJSON?.error || 'Failed')); },
-            complete: function() { $('#loading').hide(); }
-        });
-    });
-});
-
 function loadCollections() {
-    $.get('/api/rag/collections', function(data) {
-        if (data.collections && data.collections.length > 0) {
-            let html = '<div style="display:grid;gap:1rem;">';
-            var select = $('#ask_collection');
-            select.empty();
-            data.collections.forEach(function(c) {
-                select.append($('<option>').val(c.name).text(c.name + ' (' + c.document_count + ' chunks)'));
-                html += '<div style="padding:1rem;background:white;border-radius:0.5rem;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">';
-                html += '<div><strong>' + c.name + '</strong><br><span style="color:#718096;font-size:0.875rem;">' + c.document_count + ' chunks indexed</span></div>';
-                html += '<button onclick="deleteCollection(\'' + c.name + '\')" class="btn" style="background:#f56565;color:white;padding:0.5rem 1rem;border:none;border-radius:0.375rem;cursor:pointer;"><i class="fas fa-trash"></i></button>';
-                html += '</div>';
-            });
-            html += '</div>';
-            $('#collectionsContent').html(html);
-        } else {
-            $('#collectionsContent').html('<p style="color:#718096;">No collections yet. Index some documents to get started.</p>');
-            $('#ask_collection').html('<option value="default">default</option>');
-        }
-    });
+    fetch('/api/kb/list')
+        .then(r => r.json())
+        .then(data => {
+            const list = document.getElementById('collectionsList');
+            if (data.status === 'error') {
+                list.innerHTML = `<p style="color:#e53e3e;font-size:0.8rem;">${data.error}</p>`;
+                return;
+            }
+            const cols = data.collections || [];
+            if (cols.length === 0) {
+                list.innerHTML = '<p style="color:#a0aec0;font-size:0.8rem;">No collections yet. Index some documents to get started.</p>';
+                return;
+            }
+            list.innerHTML = cols.map(c => `
+                <div class="collection-item">
+                    <div>
+                        <span class="name">${c.name}</span>
+                        <span class="count">(${c.document_count} chunks)</span>
+                    </div>
+                    <button class="btn-danger" onclick="deleteCollection('${c.name}')"><i class="fas fa-trash"></i></button>
+                </div>
+            `).join('');
+        })
+        .catch(err => {
+            document.getElementById('collectionsList').innerHTML = `<p style="color:#e53e3e;font-size:0.8rem;">Error: ${err.message}</p>`;
+        });
 }
 
 function deleteCollection(name) {
-    if (!confirm('Delete collection "' + name + '"? This cannot be undone.')) return;
-    $.ajax({
-        url: '/api/rag/delete', method: 'POST',
-        contentType: 'application/json', data: JSON.stringify({collection: name}),
-        success: function() { loadCollections(); }
+    if (!confirm(`Delete collection "${name}"? This cannot be undone.`)) return;
+    fetch('/api/kb/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({collection: name})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') loadCollections();
+        else alert(data.error || 'Delete failed');
     });
 }
 
-function formatMd(text) {
-    if (!text) return '';
-    let html = text;
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow-x:auto;font-size:0.85rem;margin:0.5rem 0;"><code>$2</code></pre>');
-    html = html.replace(/`([^`]+)`/g, '<code style="background:#edf2f7;padding:2px 6px;border-radius:3px;">$1</code>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/\n/g, '<br>');
-    return html;
+function showResult(elementId, data) {
+    const el = document.getElementById(elementId);
+    el.classList.add('visible');
+    if (data.status === 'success') {
+        el.innerHTML = `<span class="status-badge success">Success</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
+    } else {
+        el.innerHTML = `<span class="status-badge error">Error</span><pre>${data.error || JSON.stringify(data, null, 2)}</pre>`;
+    }
 }
-</script>
 
-<style>
-.tab-link { padding: 0.75rem 1.5rem; text-decoration: none; color: var(--text-secondary); border-bottom: 3px solid transparent; transition: all 0.3s; cursor: pointer; }
-.tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-</style>
+function indexFolder() {
+    const btn = document.getElementById('btnIndexFolder');
+    const path = document.getElementById('folderPath').value.trim();
+    if (!path) { alert('Folder path is required'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Indexing...';
+    fetch('/api/kb/index-folder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            folder_path: path,
+            collection: document.getElementById('folderCollection').value.trim() || 'default',
+            include_code: document.getElementById('includeCode').checked
+        })
+    })
+    .then(r => r.json())
+    .then(data => { showResult('folderResult', data); loadCollections(); })
+    .catch(err => showResult('folderResult', {status:'error', error: err.message}))
+    .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="fas fa-upload"></i> Index Folder'; });
+}
+
+function indexRepo() {
+    const btn = document.getElementById('btnIndexRepo');
+    const url = document.getElementById('repoUrl').value.trim();
+    if (!url) { alert('Repository URL is required'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Cloning & indexing...';
+    fetch('/api/kb/index-repo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            repo_url: url,
+            collection: document.getElementById('repoCollection').value.trim() || 'default',
+            branch: document.getElementById('repoBranch').value.trim() || 'main'
+        })
+    })
+    .then(r => r.json())
+    .then(data => { showResult('repoResult', data); loadCollections(); })
+    .catch(err => showResult('repoResult', {status:'error', error: err.message}))
+    .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="fas fa-code-branch"></i> Clone & Index'; });
+}
+
+function indexWeb() {
+    const btn = document.getElementById('btnIndexWeb');
+    const url = document.getElementById('webUrl').value.trim();
+    if (!url) { alert('URL is required'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Fetching...';
+    fetch('/api/kb/index-web', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            url: url,
+            collection: document.getElementById('webCollection').value.trim() || 'default',
+            crawl: document.getElementById('webCrawl').checked
+        })
+    })
+    .then(r => r.json())
+    .then(data => { showResult('webResult', data); loadCollections(); })
+    .catch(err => showResult('webResult', {status:'error', error: err.message}))
+    .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Fetch & Index'; });
+}
+
+function askKB() {
+    const btn = document.getElementById('btnAsk');
+    const question = document.getElementById('kbQuestion').value.trim();
+    if (!question) { alert('Question is required'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Searching...';
+    const answerEl = document.getElementById('askAnswer');
+    answerEl.style.display = 'none';
+    fetch('/api/kb/ask', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            question: question,
+            collection: document.getElementById('askCollection').value.trim() || 'default',
+            top_k: 5
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        answerEl.style.display = 'block';
+        if (data.status === 'success') {
+            let sourcesHtml = '';
+            if (data.sources && data.sources.length) {
+                sourcesHtml = '<br><strong>Sources:</strong><ul>' +
+                    data.sources.map(s => `<li>${s.file} (relevance: ${(s.relevance*100).toFixed(0)}%)</li>`).join('') + '</ul>';
+            }
+            answerEl.innerHTML = `<div>${data.answer.replace(/\n/g, '<br>')}</div>${sourcesHtml}`;
+        } else {
+            answerEl.innerHTML = `<span style="color:#e53e3e;">${data.error}</span>`;
+        }
+    })
+    .catch(err => { answerEl.style.display = 'block'; answerEl.innerHTML = `<span style="color:#e53e3e;">Error: ${err.message}</span>`; })
+    .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> Ask'; });
+}
+
+// Load collections on page load
+document.addEventListener('DOMContentLoaded', loadCollections);
+</script>
 {% endblock %}

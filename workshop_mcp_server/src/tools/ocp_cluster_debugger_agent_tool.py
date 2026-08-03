@@ -106,6 +106,19 @@ class OCPClusterDebuggerAgent:
                         findings_text = "\n".join([f"- [{f.get('severity','')}] {f.get('finding','')}" for f in findings])
                         live_data += f"\n\nFINDINGS:\n{findings_text}"
 
+                    # Enrich with RAG context if available
+                    kb_section = ""
+                    try:
+                        from workshop_mcp_server.src.tools.rag.kb_context import get_kb_context
+                        kb_context = get_kb_context(
+                            f"OpenShift {component or ''} {issue_description} troubleshooting",
+                            collections=None, top_k=2, max_chars=1000
+                        )
+                        if kb_context:
+                            kb_section = f"\n\nREFERENCE (Knowledge Base):\n{kb_context}"
+                    except Exception:
+                        pass
+
                     llm_prompt = f"""Analyze these LIVE cluster diagnostic results for issue: "{issue_description}"
 
 LIVE CLUSTER OUTPUT:
@@ -113,7 +126,7 @@ LIVE CLUSTER OUTPUT:
 
 CLUSTER ACCESS: {'Connected' if validation.get('cluster_accessible') else 'Not connected'}
 NAMESPACE: {namespace or 'not specified'}
-COMPONENT: {component or 'not specified'}
+COMPONENT: {component or 'not specified'}{kb_section}
 
 Based on the ACTUAL cluster output above:
 1. What is the current state? (interpret the real data)
@@ -125,7 +138,8 @@ Based on the ACTUAL cluster output above:
 The user ran real oc commands and this is the actual output. Analyze it directly.
 Do NOT generate generic suggestions — interpret the REAL data shown.
 If the output shows pods Running, say they're healthy.
-If output shows errors, explain the specific errors found."""
+If output shows errors, explain the specific errors found.
+If REFERENCE Knowledge Base context is provided, use it to enrich your diagnosis with known solutions."""
 
                     llm_analysis = generate(llm_prompt, system=llm_system)
             except Exception as llm_err:

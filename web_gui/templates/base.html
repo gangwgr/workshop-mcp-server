@@ -28,24 +28,11 @@
         <div class="nav-links">
             <a href="/" class="{% if request.path == '/' %}active{% endif %}"><i class="fas fa-home"></i> Home</a>
             <span class="separator">|</span>
-            <a href="/code-review" class="{% if request.path == '/code-review' %}active{% endif %}"><i class="fas fa-code"></i> Review</a>
-            <a href="/pr-review" class="{% if request.path == '/pr-review' %}active{% endif %}"><i class="fab fa-github"></i> PR</a>
-            <a href="/ocp-testing" class="{% if request.path == '/ocp-testing' %}active{% endif %}"><i class="fas fa-vial"></i> Testing</a>
-            <a href="/test-plan-generator" class="{% if request.path == '/test-plan-generator' %}active{% endif %}"><i class="fas fa-clipboard-check"></i> TestPlan</a>
-            <a href="/regression-test-agent" class="{% if request.path == '/regression-test-agent' %}active{% endif %}"><i class="fas fa-shield-alt"></i> Regression</a>
+            <a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Cluster Debugger</a>
+            <a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> Must-Gather Analyzer</a>
+            <a href="/knowledge-base" class="{% if request.path == '/knowledge-base' %}active{% endif %}"><i class="fas fa-brain"></i> Knowledge Base</a>
             <span class="separator">|</span>
-            <a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Debug</a>
-            <a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> MustGather</a>
-            <span class="separator">|</span>
-            <a href="/code-assistant" class="{% if request.path == '/code-assistant' %}active{% endif %}"><i class="fas fa-robot"></i> Code AI</a>
-            <a href="/knowledge-base" class="{% if request.path == '/knowledge-base' %}active{% endif %}"><i class="fas fa-book"></i> KB</a>
-            <a href="/ai-chat" class="{% if request.path == '/ai-chat' %}active{% endif %}"><i class="fas fa-comments"></i> Chat</a>
-            <span class="separator">|</span>
-            <a href="/work-reports" class="{% if request.path == '/work-reports' %}active{% endif %}"><i class="fas fa-file-alt"></i> Reports</a>
-            <a href="/jira-manager-improved" class="{% if request.path == '/jira-manager-improved' %}active{% endif %}"><i class="fab fa-jira"></i> Jira</a>
-            <a href="/polarion-qa" class="{% if request.path == '/polarion-qa' %}active{% endif %}"><i class="fas fa-search"></i> Polarion</a>
-            <span class="separator">|</span>
-            <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}"><i class="fas fa-cog"></i></a>
+            <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}"><i class="fas fa-cog"></i> Settings</a>
         </div>
         <div class="mode-bar">
             <span id="modeIndicator" class="mode-indicator">●</span>
