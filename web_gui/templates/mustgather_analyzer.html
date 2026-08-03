@@ -40,11 +40,11 @@
             <h3>Analyze Must-Gather Bundle</h3>
             <form id="analyzeForm">
                 <div class="form-group">
-                    <label for="bundle_path">Must-Gather Bundle Path</label>
+                    <label for="bundle_path">Must-Gather Bundle Path or URL</label>
                     <input type="text" id="bundle_path" name="bundle_path" class="form-control"
-                           placeholder="/path/to/must-gather.tar.gz or /path/to/extracted-directory" required>
+                           placeholder="/path/to/must-gather.tar.gz or https://storage.example.com/must-gather.tar.gz" required>
                     <small style="color: #718096; display: block; margin-top: 0.25rem;">
-                        Can be a .tar.gz, .tar, .zip archive or extracted directory (hash subdirectory auto-resolved for scripts).
+                        Supports: local path (.tar.gz, .tar, .zip, directory) <strong>or</strong> URL (http/https — bundle will be downloaded automatically).
                     </small>
                 </div>
 
@@ -248,6 +248,7 @@ $(document).ready(function() {
             url: '/api/run-mustgather-script',
             method: 'POST',
             contentType: 'application/json',
+            timeout: 600000,
             data: JSON.stringify(buildScriptPayload(bundlePath)),
         });
     }
@@ -258,6 +259,7 @@ $(document).ready(function() {
             url: '/api/analyze-mustgather',
             method: 'POST',
             contentType: 'application/json',
+            timeout: 600000,
             data: JSON.stringify({
                 bundle_path: bundlePath,
                 detailed_analysis: deepLogs,
@@ -271,36 +273,81 @@ $(document).ready(function() {
         const bundlePath = $('#bundle_path').val().trim();
         if (!bundlePath) { alert('Enter must-gather path'); return; }
 
+        const isUrl = bundlePath.startsWith('http://') || bundlePath.startsWith('https://');
         const deepLogs = $('#deep_log_scan').is(':checked');
         $('#loading').show();
-        $('#loadingText').text(deepLogs
-            ? 'Running deep log scan, SRE analysis, and focused scripts...'
-            : 'Running SRE analysis and focused scripts...');
         $('#analysisResults').hide();
         $('#focusedScriptResults, #healthSummary, #anomalyDetection, #sreReport, #criticalLogs, #issuesList, #llmAnalysisContainer, #fullReport').empty();
 
-        $.when(runSreAjax(bundlePath), runScriptAjax(bundlePath)).done(function(sreResp, scriptResp) {
-            const sreResult = sreResp[0];
-            const scriptResult = scriptResp[0];
+        if (isUrl) {
+            // For URLs: download first, then analyze the local file
+            $('#loadingText').text('Downloading bundle from URL (this may take a few minutes for large files)...');
+            $.ajax({
+                url: '/api/download-bundle',
+                method: 'POST',
+                contentType: 'application/json',
+                timeout: 660000,
+                data: JSON.stringify({ url: bundlePath })
+            }).done(function(dlResult) {
+                if (dlResult.status === 'error') {
+                    alert('Download failed: ' + dlResult.error);
+                    $('#loading').hide();
+                    return;
+                }
+                // Use the local path for analysis
+                const localPath = dlResult.local_path;
+                $('#loadingText').text(deepLogs
+                    ? 'Downloaded! Running deep log scan, SRE analysis, and focused scripts...'
+                    : 'Downloaded! Running SRE analysis and focused scripts...');
+                runAnalysis(localPath, deepLogs);
+            }).fail(function(xhr) {
+                alert('Download error: ' + (xhr.responseJSON?.error || 'Failed to download bundle from URL'));
+                $('#loading').hide();
+            });
+        } else {
+            // For local paths: run directly
+            $('#loadingText').text(deepLogs
+                ? 'Running deep log scan, SRE analysis, and focused scripts...'
+                : 'Running SRE analysis and focused scripts...');
+            runAnalysis(bundlePath, deepLogs);
+        }
+    });
+
+    function runAnalysis(bundlePath, deepLogs) {
+        // Run both in parallel but handle failures independently
+        var srePromise = runSreAjax(bundlePath).then(
+            function(data) { return {status: 'resolved', data: data}; },
+            function(xhr) { return $.Deferred().resolve({status: 'rejected', error: xhr.responseJSON?.error || 'SRE analysis timed out'}).promise(); }
+        );
+        var scriptPromise = runScriptAjax(bundlePath).then(
+            function(data) { return {status: 'resolved', data: data}; },
+            function(xhr) { return $.Deferred().resolve({status: 'rejected', error: xhr.responseJSON?.error || 'Script analysis failed'}).promise(); }
+        );
+
+        $.when(srePromise, scriptPromise).done(function(sreWrapped, scriptWrapped) {
             window.analysisContext = { mode: 'unified' };
-            if (sreResult.status === 'error') {
-                alert('SRE analysis error: ' + sreResult.error);
+            var sreResult = sreWrapped.status === 'resolved' ? sreWrapped.data : {status: 'error', error: sreWrapped.error};
+            var scriptResult = scriptWrapped.status === 'resolved' ? scriptWrapped.data : null;
+
+            if (sreResult.status === 'error' && !scriptResult) {
+                alert('Analysis failed: ' + sreResult.error);
             } else {
-                displayResults(sreResult, scriptResult, false);
-                Object.assign(window.analysisContext, sreResult);
-            }
-            if (sreResult.status !== 'error') {
-                window.analysisContext.unified_report = $('#fullReportContent').text();
+                if (sreResult.status === 'error') {
+                    // SRE failed but scripts worked — show script results only
+                    console.warn('SRE analysis failed:', sreResult.error);
+                    displayResults({status:'success', cluster_health:{status:'unknown',summary:'SRE analysis timed out — showing script results only'}, issues:[], critical_logs:[]}, scriptResult, false);
+                } else {
+                    displayResults(sreResult, scriptResult, false);
+                    Object.assign(window.analysisContext, sreResult);
+                }
                 window.analysisContext.script_output = formatScriptOutput(scriptResult);
             }
-        }).fail(function(xhr) {
-            alert('Error: ' + (xhr.responseJSON?.error || 'Analysis failed'));
         }).always(function() {
             $('#loading').hide();
             $('#analysisResults').show();
             $('html, body').animate({ scrollTop: $('#analysisResults').offset().top - 20 }, 500);
         });
-    });
+    }
 
     function formatScriptOutput(result) {
         if (!result) return '';

@@ -171,8 +171,21 @@ Index documents to enhance AI analysis across all tools.
 ### 4. AI Chat (in navigation bar)
 
 - LLM chat with KB context injection
-- Switch between Ollama/Claude from the UI
+- Switch between Ollama / Claude / **Cursor Agent** from the UI
 - Available on all pages via the mode selector
+
+### 5. Cursor Agent (in Web UI)
+
+Use Cursor models and agents directly from the dashboard for analysis:
+
+1. Get a API key from [cursor.com/dashboard/integrations](https://cursor.com/dashboard/integrations)
+2. Go to **Settings** → set `CURSOR_API_KEY` and model (default: `composer-2.5`)
+3. Select **Cursor Agent** in the top navigation mode dropdown
+4. Run Cluster Debugger or Must-Gather analysis — LLM calls route through the Cursor SDK
+
+Optional settings:
+- `CURSOR_CWD` — local repo path for agent context
+- `CURSOR_ATTACH_MCP=true` — attach workshop MCP tools (must-gather, cluster debugger, RAG) to the agent
 
 ---
 

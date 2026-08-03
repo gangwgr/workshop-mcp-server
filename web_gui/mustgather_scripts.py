@@ -170,11 +170,15 @@ def run_script(
         return {"status": "error", "error": str(e)}
 
     if not _has_mg_markers(mg_path):
+        yaml_files = 0
+        for root, _, files in os.walk(mg_path):
+            yaml_files += sum(1 for f in files if f.endswith((".yaml", ".yml")))
         return {
             "status": "error",
             "error": (
-                "Could not find must-gather data (cluster-scoped-resources/ or namespaces/). "
-                f"Resolved path: {mg_path}"
+                "Could not find must-gather resource YAML (cluster-scoped-resources/ or namespaces/). "
+                f"Resolved path: {mg_path}. YAML files found: {yaml_files}. "
+                "If using a URL, try re-downloading — an old cached bundle may have been used."
             ),
         }
 

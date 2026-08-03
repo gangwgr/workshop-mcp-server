@@ -3,15 +3,19 @@
 Supports multiple backends:
 - ollama: Local Ollama (llama3, codellama, mistral, etc.)
 - claude: Anthropic Claude API (sonnet, opus, haiku)
+- cursor: Cursor Agent SDK (composer-2.5, etc.)
 - template: No LLM, use pattern-based rules
 
 Supports runtime mode switching without restart.
 """
 
 import os
+import logging
 import requests
 import json
-from typing import Optional, Generator
+from typing import Optional, Generator, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -29,12 +33,26 @@ VERTEX_MODEL_MAP = {
     "opus": "claude-sonnet-4-5@20250929",
 }
 
-VALID_MODES = ("ollama", "claude", "template")
+VALID_MODES = ("ollama", "claude", "cursor", "template")
+
+CURSOR_API_KEY = os.environ.get("CURSOR_API_KEY", "")
+CURSOR_MODEL = os.environ.get("CURSOR_MODEL", "composer-2.5")
+CURSOR_CWD = os.environ.get("CURSOR_CWD", "")
+CURSOR_ATTACH_MCP = os.environ.get("CURSOR_ATTACH_MCP", "true").lower() in ("1", "true", "yes")
+
+DEFAULT_CURSOR_MODELS = [
+    "composer-2.5",
+    "auto",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+    "gpt-4o",
+]
 
 _runtime_config = {
     "mode": os.environ.get("LLM_MODE", "ollama"),
     "ollama_model": os.environ.get("OLLAMA_MODEL", "llama3"),
     "claude_model": os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5@20250929"),
+    "cursor_model": os.environ.get("CURSOR_MODEL", "composer-2.5"),
 }
 
 
@@ -53,6 +71,8 @@ def get_model() -> str:
         return _runtime_config["ollama_model"]
     elif mode == "claude":
         return _runtime_config["claude_model"]
+    elif mode == "cursor":
+        return _runtime_config["cursor_model"]
     return "template"
 
 
@@ -64,35 +84,194 @@ def set_model(model: str) -> None:
         _runtime_config["ollama_model"] = model
     elif mode == "claude":
         _runtime_config["claude_model"] = model
+    elif mode == "cursor":
+        _runtime_config["cursor_model"] = model
+
+
+def _repo_root() -> str:
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
+
+
+def _cursor_cwd() -> str:
+    cwd = os.environ.get("CURSOR_CWD", CURSOR_CWD) or _repo_root()
+    return os.path.abspath(cwd)
+
+
+def _workshop_mcp_servers() -> Dict[str, Any]:
+    """Inline MCP server config so Cursor agents can call workshop tools."""
+    repo = _repo_root()
+    try:
+        from cursor_sdk.types import StdioMcpServerConfig
+        server = StdioMcpServerConfig(
+            command="python",
+            args=["-m", "workshop_mcp_server.src.main"],
+            cwd=repo,
+            env={"PYTHONPATH": repo},
+        )
+        return {"workshop-mcp-server": server}
+    except Exception:
+        return {
+            "workshop-mcp-server": {
+                "stdio": {
+                    "command": "python",
+                    "args": ["-m", "workshop_mcp_server.src.main"],
+                    "cwd": repo,
+                    "env": {"PYTHONPATH": repo},
+                }
+            }
+        }
+
+
+def list_cursor_models() -> list:
+    api_key = os.environ.get("CURSOR_API_KEY", CURSOR_API_KEY)
+    if not api_key:
+        return DEFAULT_CURSOR_MODELS[:]
+    try:
+        from cursor_sdk import Cursor
+        models = Cursor.models.list(api_key=api_key)
+        ids = []
+        for item in models or []:
+            model_id = getattr(item, "id", None) or (item.get("id") if isinstance(item, dict) else None)
+            if model_id:
+                ids.append(model_id)
+        return ids or DEFAULT_CURSOR_MODELS[:]
+    except Exception as exc:
+        logger.debug("Could not list Cursor models: %s", exc)
+        return DEFAULT_CURSOR_MODELS[:]
 
 
 def get_config() -> dict:
+    api_key = os.environ.get("CURSOR_API_KEY", CURSOR_API_KEY)
+    attach_mcp = os.environ.get("CURSOR_ATTACH_MCP", str(CURSOR_ATTACH_MCP)).lower() in ("1", "true", "yes")
     return {
         "mode": _runtime_config["mode"],
         "model": get_model(),
         "ollama_model": _runtime_config["ollama_model"],
         "claude_model": _runtime_config["claude_model"],
+        "cursor_model": _runtime_config["cursor_model"],
         "ollama_url": OLLAMA_BASE_URL,
         "claude_configured": bool(ANTHROPIC_API_KEY),
+        "cursor_configured": bool(api_key),
+        "cursor_models": list_cursor_models(),
+        "cursor_cwd": _cursor_cwd(),
+        "cursor_attach_mcp": attach_mcp,
     }
 
 
 def is_available() -> bool:
+    return get_availability_status()["available"]
+
+
+def get_availability_status() -> dict:
+    """Return mode-aware LLM availability with actionable hints."""
     mode = _runtime_config["mode"]
+    model = get_model()
+
     if mode == "template":
-        return False
+        return {
+            "available": False,
+            "mode": mode,
+            "model": model,
+            "reason": "Template/rules mode is active (no LLM).",
+            "hint": "Switch to Ollama, Claude, or Cursor Agent in the top navigation bar.",
+        }
+
     if mode == "ollama":
         try:
             resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return {"available": True, "mode": mode, "model": model, "reason": "", "hint": ""}
         except Exception:
-            return False
+            pass
+        return {
+            "available": False,
+            "mode": mode,
+            "model": model,
+            "reason": "Ollama is not running or not reachable.",
+            "hint": f"Start Ollama: `ollama serve` and verify {OLLAMA_BASE_URL}",
+        }
+
     if mode == "claude":
         api_key = os.environ.get("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY)
         use_vertex = os.environ.get("CLAUDE_CODE_USE_VERTEX", USE_VERTEX)
         vertex_project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", VERTEX_PROJECT_ID)
-        return bool(api_key) or (bool(use_vertex) and bool(vertex_project))
-    return False
+        if api_key or (use_vertex and vertex_project):
+            return {"available": True, "mode": mode, "model": model, "reason": "", "hint": ""}
+        return {
+            "available": False,
+            "mode": mode,
+            "model": model,
+            "reason": "Claude is not configured.",
+            "hint": "Go to Settings → set ANTHROPIC_API_KEY or Vertex AI credentials.",
+        }
+
+    if mode == "cursor":
+        api_key = os.environ.get("CURSOR_API_KEY", CURSOR_API_KEY)
+        if api_key:
+            return {"available": True, "mode": mode, "model": model, "reason": "", "hint": ""}
+        return {
+            "available": False,
+            "mode": mode,
+            "model": model,
+            "reason": "Cursor Agent mode is selected but CURSOR_API_KEY is not set.",
+            "hint": "Go to Settings → Cursor Agent → add your API key from cursor.com/dashboard/integrations, or switch to Ollama.",
+        }
+
+    return {
+        "available": False,
+        "mode": mode,
+        "model": model,
+        "reason": f"Unknown LLM mode: {mode}",
+        "hint": "Switch to a supported mode in the navigation bar.",
+    }
+
+
+def generate_with_fallback(prompt: str, system: str = "", model: str = None,
+                           temperature: float = 0.7, max_tokens: int = 4096) -> tuple:
+    """Generate LLM response. Falls back to Ollama if primary mode unavailable or empty.
+
+    Returns:
+        (text_or_none, meta_dict) where meta may include fallback_used, fallback_reason
+    """
+    status = get_availability_status()
+    primary_mode = status["mode"]
+
+    if status["available"]:
+        result = generate(prompt, system=system, model=model,
+                          temperature=temperature, max_tokens=max_tokens)
+        if result:
+            return result, {"fallback_used": False, "mode": primary_mode}
+
+    # Fallback to Ollama when primary backend is misconfigured or returned nothing
+    fallback_reason = status.get("reason") or "Primary LLM returned no response"
+    try:
+        resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
+        if resp.status_code == 200:
+            fallback_model = _runtime_config.get("ollama_model", "llama3")
+            result = _generate_ollama(prompt, system, fallback_model, temperature, max_tokens)
+            if result:
+                note = (
+                    f"\n\n---\n*Used Ollama fallback ({fallback_model}) because "
+                    f"{fallback_reason}. {status.get('hint', '')}*"
+                )
+                return result + note, {
+                    "fallback_used": True,
+                    "fallback_mode": "ollama",
+                    "fallback_model": fallback_model,
+                    "primary_mode": primary_mode,
+                    "primary_reason": fallback_reason,
+                }
+    except Exception:
+        pass
+
+    return None, {
+        "fallback_used": False,
+        "error": fallback_reason,
+        "hint": status.get("hint") or "Start Ollama (`ollama serve`) or configure your selected LLM in Settings.",
+        "mode": primary_mode,
+    }
 
 
 def _generate_ollama(prompt: str, system: str, model: str,
@@ -185,6 +364,89 @@ def _generate_claude_vertex(prompt: str, system: str, model: str,
         return None
 
 
+def _generate_cursor(prompt: str, system: str, model: str,
+                     temperature: float, max_tokens: int) -> Optional[str]:
+    api_key = os.environ.get("CURSOR_API_KEY", CURSOR_API_KEY)
+    if not api_key:
+        return None
+
+    try:
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+    except ImportError:
+        logger.error("cursor-sdk not installed. Run: pip install cursor-sdk")
+        return None
+
+    full_prompt = prompt
+    if system:
+        full_prompt = f"{system}\n\n---\n\n{prompt}"
+
+    attach_mcp = os.environ.get("CURSOR_ATTACH_MCP", str(CURSOR_ATTACH_MCP)).lower() in ("1", "true", "yes")
+    options_kwargs: Dict[str, Any] = {
+        "api_key": api_key,
+        "model": model,
+        "local": LocalAgentOptions(cwd=_cursor_cwd()),
+    }
+    if attach_mcp:
+        options_kwargs["mcp_servers"] = _workshop_mcp_servers()
+
+    try:
+        result = Agent.prompt(full_prompt, AgentOptions(**options_kwargs))
+        if result.status == "finished" and result.result:
+            return result.result.strip()
+        if result.status == "error":
+            logger.error("Cursor agent run failed: %s", result.result or result.id)
+        return None
+    except Exception as exc:
+        logger.error("Cursor agent error: %s", exc)
+        return None
+
+
+def generate_cursor_stream(prompt: str, system: str = "", model: str = None):
+    """Stream text chunks from a Cursor agent run (for chat UI)."""
+    api_key = os.environ.get("CURSOR_API_KEY", CURSOR_API_KEY)
+    if not api_key:
+        yield "[ERROR: CURSOR_API_KEY not configured. Go to Settings.]"
+        return
+
+    try:
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+    except ImportError:
+        yield "[ERROR: cursor-sdk not installed. Run: pip install cursor-sdk]"
+        return
+
+    active_model = model or _runtime_config["cursor_model"]
+    full_prompt = prompt
+    if system:
+        full_prompt = f"{system}\n\n---\n\n{prompt}"
+
+    attach_mcp = os.environ.get("CURSOR_ATTACH_MCP", str(CURSOR_ATTACH_MCP)).lower() in ("1", "true", "yes")
+    options_kwargs: Dict[str, Any] = {
+        "api_key": api_key,
+        "model": active_model,
+        "local": LocalAgentOptions(cwd=_cursor_cwd()),
+    }
+    if attach_mcp:
+        options_kwargs["mcp_servers"] = _workshop_mcp_servers()
+
+    try:
+        with Agent.create(AgentOptions(**options_kwargs)) as agent:
+            run = agent.send(full_prompt)
+            for message in run.messages():
+                if getattr(message, "type", None) != "assistant":
+                    continue
+                content = getattr(getattr(message, "message", None), "content", None) or []
+                for block in content:
+                    if getattr(block, "type", None) == "text":
+                        text = getattr(block, "text", "")
+                        if text:
+                            yield text
+            result = run.wait()
+            if result.status == "error":
+                yield f"\n[ERROR: Cursor agent run failed: {result.result or result.id}]"
+    except Exception as exc:
+        yield f"[ERROR: {exc}]"
+
+
 def generate(prompt: str, system: str = "", model: str = None,
              temperature: float = 0.7, max_tokens: int = 4096) -> Optional[str]:
     mode = _runtime_config["mode"]
@@ -198,6 +460,10 @@ def generate(prompt: str, system: str = "", model: str = None,
     if mode == "claude":
         active_model = model or _runtime_config["claude_model"]
         return _generate_claude(prompt, system, active_model, temperature, max_tokens)
+
+    if mode == "cursor":
+        active_model = model or _runtime_config["cursor_model"]
+        return _generate_cursor(prompt, system, active_model, temperature, max_tokens)
 
     return None
 

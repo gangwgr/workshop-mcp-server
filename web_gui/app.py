@@ -90,6 +90,10 @@ def api_settings_get():
         'OLLAMA_MODEL': os.environ.get('OLLAMA_MODEL', 'llama3'),
         'CLAUDE_MODEL': os.environ.get('CLAUDE_MODEL', 'claude-sonnet-4-5@20250929'),
         'LLM_MODE': os.environ.get('LLM_MODE', 'ollama'),
+        'CURSOR_API_KEY': '***' if os.environ.get('CURSOR_API_KEY') else '',
+        'CURSOR_MODEL': os.environ.get('CURSOR_MODEL', 'composer-2.5'),
+        'CURSOR_CWD': os.environ.get('CURSOR_CWD', ''),
+        'CURSOR_ATTACH_MCP': os.environ.get('CURSOR_ATTACH_MCP', 'true'),
         'CLAUDE_CODE_USE_VERTEX': os.environ.get('CLAUDE_CODE_USE_VERTEX', ''),
         'ANTHROPIC_VERTEX_PROJECT_ID': os.environ.get('ANTHROPIC_VERTEX_PROJECT_ID', ''),
         'CLOUD_ML_REGION': os.environ.get('CLOUD_ML_REGION', ''),
@@ -113,6 +117,7 @@ def api_settings_save():
         'JIRA_URL', 'JIRA_TOKEN', 'JIRA_USERNAME',
         'ANTHROPIC_API_KEY',
         'OLLAMA_BASE_URL', 'OLLAMA_MODEL', 'CLAUDE_MODEL', 'LLM_MODE',
+        'CURSOR_API_KEY', 'CURSOR_MODEL', 'CURSOR_CWD', 'CURSOR_ATTACH_MCP',
         'CLAUDE_CODE_USE_VERTEX', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION',
         'GIT_AUTHOR_NAME', 'RAG_ENABLED',
     ]
@@ -157,6 +162,8 @@ def api_settings_save():
             _runtime_config['ollama_model'] = data['OLLAMA_MODEL']
         if 'CLAUDE_MODEL' in data and data['CLAUDE_MODEL'] != '***':
             _runtime_config['claude_model'] = data['CLAUDE_MODEL']
+        if 'CURSOR_MODEL' in data and data['CURSOR_MODEL'] != '***':
+            _runtime_config['cursor_model'] = data['CURSOR_MODEL']
     except Exception:
         pass
 
@@ -195,6 +202,13 @@ def api_run_mustgather_script():
         if not bundle_path:
             return jsonify({'status': 'error', 'error': 'bundle_path is required'}), 400
 
+        # If it's a URL, download it first
+        if bundle_path.startswith('http://') or bundle_path.startswith('https://'):
+            try:
+                bundle_path = _download_bundle_from_url(bundle_path)
+            except Exception as dl_err:
+                return jsonify({'status': 'error', 'error': f'Download failed: {str(dl_err)}'}), 400
+
         preset_id = data.get('preset')
         if preset_id:
             return jsonify(run_preset(preset_id, bundle_path))
@@ -217,11 +231,41 @@ def api_run_mustgather_script():
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
+def _download_bundle_from_url(url: str) -> str:
+    """Download a must-gather bundle from URL (unique cache per URL)."""
+    from workshop_mcp_server.src.tools.mustgather_download import download_bundle_from_url
+    return download_bundle_from_url(url)
+
+
+@app.route('/api/download-bundle', methods=['POST'])
+def api_download_bundle():
+    """Download a must-gather bundle from URL and return the local path."""
+    try:
+        data = request.json or {}
+        url = (data.get('url') or '').strip()
+        if not url:
+            return jsonify({'status': 'error', 'error': 'url is required'}), 400
+        if not url.startswith('http://') and not url.startswith('https://'):
+            return jsonify({'status': 'error', 'error': 'Invalid URL'}), 400
+
+        local_path = _download_bundle_from_url(url)
+        file_size = os.path.getsize(local_path)
+        return jsonify({
+            'status': 'success',
+            'local_path': local_path,
+            'file_size': file_size,
+            'file_size_mb': round(file_size / (1024 * 1024), 1)
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/api/analyze-mustgather', methods=['POST'])
 def api_analyze_mustgather():
     """API endpoint for must-gather analysis."""
     try:
         import asyncio
+        import concurrent.futures
         data = request.json
 
         bundle_path = data.get('bundle_path', '')
@@ -233,6 +277,16 @@ def api_analyze_mustgather():
                 'error': 'Bundle path is required'
             }), 400
 
+        # If it's a URL, download it first
+        if bundle_path.startswith('http://') or bundle_path.startswith('https://'):
+            try:
+                bundle_path = _download_bundle_from_url(bundle_path)
+            except Exception as dl_err:
+                return jsonify({
+                    'status': 'error',
+                    'error': f'Failed to download bundle from URL: {str(dl_err)}'
+                }), 400
+
         # Check if path exists
         if not os.path.exists(bundle_path):
             return jsonify({
@@ -240,15 +294,39 @@ def api_analyze_mustgather():
                 'error': f'Path not found: {bundle_path}'
             }), 400
 
-        # Run async analysis in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Run analysis with timeout using subprocess
+        import subprocess as _sp
+        import json as _json
+        import tempfile
+
+        # Write a small script to run the analysis and output JSON
+        script = f"""
+import sys, json, asyncio
+sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}')
+from workshop_mcp_server.src.tools.mustgather_analyzer_tool import analyze_mustgather_bundle
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+try:
+    result = loop.run_until_complete(analyze_mustgather_bundle({repr(bundle_path)}, {repr(detailed_analysis)}))
+    print(json.dumps(result, default=str))
+except Exception as e:
+    print(json.dumps({{"status": "error", "error": str(e)}}))
+finally:
+    loop.close()
+"""
         try:
-            result = loop.run_until_complete(
-                analyze_mustgather_bundle(bundle_path, detailed_analysis)
+            proc_result = _sp.run(
+                [sys.executable, '-c', script],
+                capture_output=True, text=True, timeout=180,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             )
-        finally:
-            loop.close()
+            if proc_result.returncode == 0 and proc_result.stdout.strip():
+                result = _json.loads(proc_result.stdout.strip().split('\n')[-1])
+            else:
+                error_msg = proc_result.stderr.strip()[-500:] if proc_result.stderr else 'Unknown error'
+                result = {"status": "error", "error": f"Analysis failed: {error_msg}"}
+        except _sp.TimeoutExpired:
+            result = {"status": "error", "error": "Analysis timed out (180s). Try unchecking Deep log scanning or use a smaller bundle."}
 
         return jsonify(result)
     except Exception as e:
@@ -258,9 +336,7 @@ def api_analyze_mustgather():
 def api_analyze_component():
     """LLM-powered deep analysis for a specific component from must-gather data."""
     try:
-        from workshop_mcp_server.src.tools.llm_provider import generate, is_available
-        if not is_available():
-            return jsonify({'status': 'error', 'error': 'LLM not available'}), 500
+        from workshop_mcp_server.src.tools.llm_provider import generate_with_fallback, get_availability_status
 
         data = request.json
         component = data.get('component', '')
@@ -342,14 +418,19 @@ Provide root-cause analysis:"""
         if kb_context:
             prompt += f"\n\nRELEVANT KNOWLEDGE BASE ARTICLES:\n{kb_context}"
 
-        result = generate(prompt, system=system_prompt)
+        result, meta = generate_with_fallback(prompt, system=system_prompt)
         if not result:
-            return jsonify({'status': 'error', 'error': 'LLM returned empty response'}), 500
+            status = get_availability_status()
+            err = meta.get("error") or status.get("reason") or "LLM not available"
+            hint = meta.get("hint") or status.get("hint") or ""
+            message = f"{err} {hint}".strip()
+            return jsonify({'status': 'error', 'error': message}), 500
 
         return jsonify({
             'status': 'success',
             'analysis': result,
-            'component': component
+            'component': component,
+            'llm_meta': meta,
         })
     except ImportError:
         return jsonify({'status': 'error', 'error': 'LLM provider not available'}), 500
@@ -1216,12 +1297,14 @@ except ImportError:
 def api_ai_status():
     """Check backend availability, list models, and report current mode."""
     try:
-        from workshop_mcp_server.src.tools.llm_provider import get_config, is_available as llm_is_available
+        from workshop_mcp_server.src.tools.llm_provider import get_config, get_availability_status
         config = get_config()
+        llm_status = get_availability_status()
     except ImportError:
         config = {"mode": "template", "model": "llama3", "ollama_model": "llama3",
                   "claude_model": "claude-sonnet-4-5@20250929", "ollama_url": "http://localhost:11434",
-                  "claude_configured": False}
+                  "claude_configured": False, "cursor_configured": False}
+        llm_status = {"available": False, "reason": "LLM provider not installed", "hint": ""}
 
     # Get Ollama models if available
     ollama_available = False
@@ -1231,38 +1314,44 @@ def api_ai_status():
         models = ollama_client.list_models() if ollama_available else []
 
     return jsonify({
-        'available': ollama_available,
+        'available': llm_status.get('available', False),
+        'llm_available': llm_status.get('available', False),
+        'llm_unavailable_reason': llm_status.get('reason', ''),
+        'llm_unavailable_hint': llm_status.get('hint', ''),
         'ollama_available': ollama_available,
         'claude_configured': config.get('claude_configured', False),
+        'cursor_configured': config.get('cursor_configured', False),
+        'cursor_models': config.get('cursor_models', []),
+        'cursor_cwd': config.get('cursor_cwd', ''),
+        'cursor_attach_mcp': config.get('cursor_attach_mcp', True),
         'models': models,
         'mode': config['mode'],
         'model': config['model'],
         'ollama_model': config.get('ollama_model', 'llama3'),
         'claude_model': config.get('claude_model', 'claude-sonnet-4-5@20250929'),
+        'cursor_model': config.get('cursor_model', 'composer-2.5'),
     })
 
 
 @app.route('/api/ai/switch-mode', methods=['POST'])
 def api_ai_switch_mode():
-    """Switch between 'ollama', 'claude', and 'template' mode at runtime."""
+    """Switch between 'ollama', 'claude', 'cursor', and 'template' mode at runtime."""
     data = request.json or {}
     new_mode = data.get('mode', '').strip().lower()
     new_model = data.get('model', '').strip()
 
-    if new_mode and new_mode not in ('ollama', 'claude', 'template'):
-        return jsonify({'status': 'error', 'error': "mode must be 'ollama', 'claude', or 'template'"}), 400
+    if new_mode and new_mode not in ('ollama', 'claude', 'cursor', 'template'):
+        return jsonify({'status': 'error', 'error': "mode must be 'ollama', 'claude', 'cursor', or 'template'"}), 400
 
     try:
-        from workshop_mcp_server.src.tools.llm_provider import set_mode, set_model, get_config, is_available as llm_is_available
+        from workshop_mcp_server.src.tools.llm_provider import set_mode, set_model, get_config, get_availability_status
         if new_mode:
             set_mode(new_mode)
         if new_model:
             set_model(new_model)
 
         config = get_config()
-        ollama_online = False
-        if config['mode'] == 'ollama':
-            ollama_online = llm_is_available()
+        llm_status = get_availability_status()
 
         return jsonify({
             'status': 'success',
@@ -1270,9 +1359,18 @@ def api_ai_switch_mode():
             'model': config['model'],
             'ollama_model': config.get('ollama_model', 'llama3'),
             'claude_model': config.get('claude_model', 'claude-sonnet-4-5@20250929'),
-            'ollama_available': ollama_online,
+            'cursor_model': config.get('cursor_model', 'composer-2.5'),
+            'cursor_models': config.get('cursor_models', []),
+            'ollama_available': OLLAMA_IMPORTED and ollama_client.is_ollama_available() if OLLAMA_IMPORTED else False,
             'claude_configured': config.get('claude_configured', False),
-            'message': f"Switched to {config['mode']} mode ({config['model']})",
+            'cursor_configured': config.get('cursor_configured', False),
+            'llm_available': llm_status.get('available', False),
+            'llm_unavailable_reason': llm_status.get('reason', ''),
+            'llm_unavailable_hint': llm_status.get('hint', ''),
+            'message': (
+                f"Switched to {config['mode']} mode ({config['model']})"
+                + (f" — {llm_status['reason']}" if not llm_status.get('available') else "")
+            ),
         })
     except ImportError:
         return jsonify({'status': 'error', 'error': 'llm_provider not available'}), 500
@@ -1345,6 +1443,40 @@ If Knowledge Base context is provided, use it to give more accurate answers grou
 
         from flask import Response
         return Response(stream_claude(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    # Route to Cursor Agent SDK
+    if current_mode == 'cursor':
+        if not os.environ.get('CURSOR_API_KEY'):
+            return jsonify({'error': 'Cursor not configured. Go to Settings and set CURSOR_API_KEY.'}), 500
+
+        system_prompt = """You are a Cursor AI agent integrated into an MCP development dashboard.
+You help with OpenShift/Kubernetes operations, code review, test generation, and debugging.
+When asked about your identity: you are a Cursor agent using model """ + current_model + """.
+Be concise, technical, and helpful.
+If Knowledge Base context is provided, use it to give more accurate answers grounded in the team's documentation.
+You may use attached MCP tools (must-gather analyzer, cluster debugger, knowledge base) when helpful."""
+
+        user_msgs = [m for m in messages if m.get('role') != 'system']
+        prompt_parts = []
+        if kb_context:
+            prompt_parts.append(f"{kb_context}\n\n---\n")
+        prompt_parts.append("\n".join([f"{m['role']}: {m['content']}" for m in user_msgs]))
+        prompt = "\n".join(prompt_parts)
+
+        def stream_cursor():
+            try:
+                from workshop_mcp_server.src.tools.llm_provider import generate_cursor_stream
+                for chunk in generate_cursor_stream(prompt, system=system_prompt, model=current_model):
+                    chunk_size = 40
+                    for i in range(0, len(chunk), chunk_size):
+                        yield f"data: {json.dumps(chunk[i:i+chunk_size], ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                yield f"data: [ERROR: {str(e)}]\n\n"
+
+        from flask import Response
+        return Response(stream_cursor(), mimetype='text/event-stream',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
     # Route to Ollama (streaming)
@@ -1500,4 +1632,4 @@ def api_kb_delete():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5001, threaded=True)

@@ -5,10 +5,23 @@ from typing import List, Tuple
 
 
 def has_mustgather_markers(directory: str) -> bool:
-    return (
-        os.path.isdir(os.path.join(directory, "cluster-scoped-resources"))
-        or os.path.isdir(os.path.join(directory, "namespaces"))
-    )
+    """True when directory looks like a must-gather root with actual resource YAML."""
+    csr = os.path.join(directory, "cluster-scoped-resources")
+    ns = os.path.join(directory, "namespaces")
+    if not os.path.isdir(csr) and not os.path.isdir(ns):
+        return False
+
+    yaml_count = 0
+    for root in (csr, ns):
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                if name.endswith((".yaml", ".yml")):
+                    yaml_count += 1
+                    if yaml_count >= 1:
+                        return True
+    return False
 
 
 def resolve_mustgather_data_root(path: str) -> str:

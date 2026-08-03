@@ -167,17 +167,17 @@ try:
 
     @app.tool
     def switch_llm_mode(mode: str = "ollama", model: str = "") -> dict:
-        """Switch the LLM backend between ollama (local), claude (API), or template (rules).
+        """Switch the LLM backend between ollama (local), claude (API), cursor (agent), or template (rules).
 
         Args:
-            mode: Backend to use - 'ollama', 'claude', or 'template'
-            model: Optional model name (e.g. 'llama3:latest', 'mistral:latest', 'claude-sonnet-4-20250514')
+            mode: Backend to use - 'ollama', 'claude', 'cursor', or 'template'
+            model: Optional model name (e.g. 'llama3:latest', 'composer-2.5')
 
         Returns:
             Dictionary with updated configuration
         """
-        if mode not in ("ollama", "claude", "template"):
-            return {"status": "error", "error": "mode must be 'ollama', 'claude', or 'template'"}
+        if mode not in ("ollama", "claude", "cursor", "template"):
+            return {"status": "error", "error": "mode must be 'ollama', 'claude', 'cursor', or 'template'"}
         set_mode(mode)
         if model:
             set_model(model)
