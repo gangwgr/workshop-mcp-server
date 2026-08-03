@@ -146,10 +146,13 @@ class MustGatherAnalyzer:
         return self.cluster_info.get("upgrade_duration", "")
 
     def _is_upgrade_failure(self) -> bool:
+        state = self.cluster_info.get("upgrade_state", "")
+        if state == "Completed":
+            return False
         return (
-            self.cluster_info.get("upgrade_state") == "Partial"
+            state == "Partial"
             or self.cluster_info.get("upgrade_failing")
-            or bool(self.cluster_info.get("upgrade_message"))
+            or (self.key_features.get("clusterversion_progressing") and state != "Completed")
         )
     
     def _extract_component_from_path(self, file_path: str) -> str:
@@ -238,6 +241,13 @@ class MustGatherAnalyzer:
     def analyze_bundle(self, bundle_path: str, detailed_analysis: bool = True) -> Dict[str, Any]:
         """Analyze a must-gather bundle."""
         try:
+            import time as _time
+            _analysis_start = _time.time()
+            _max_analysis_time = 150  # hard cap: 2.5 minutes total
+
+            def _time_ok():
+                return (_time.time() - _analysis_start) < _max_analysis_time
+
             logger.info(f"Starting analysis of must-gather bundle: {bundle_path} (deep_logs={detailed_analysis})")
 
             extracted_path = resolve_mustgather_data_root(self._extract_bundle(bundle_path))
@@ -248,19 +258,29 @@ class MustGatherAnalyzer:
 
             self._discover_bundle_structure(extracted_path)
 
-            self._analyze_cluster_info(extracted_path)
-            self._analyze_nodes(extracted_path)
-            self._analyze_pods(extracted_path)
-            self._analyze_events(extracted_path)
-            self._analyze_operators(extracted_path)
-            self._analyze_network(extracted_path)
-            self._analyze_storage(extracted_path)
+            if _time_ok():
+                self._analyze_cluster_info(extracted_path)
+            if _time_ok():
+                self._analyze_nodes(extracted_path)
+            if _time_ok():
+                self._analyze_pods(extracted_path)
+            if _time_ok():
+                self._analyze_events(extracted_path)
+            if _time_ok():
+                self._analyze_operators(extracted_path)
+            if _time_ok():
+                self._analyze_network(extracted_path)
+            if _time_ok():
+                self._analyze_storage(extracted_path)
 
-            if detailed_analysis:
-                # Deep log scan: walk all logs + YAML/JSON in bundle (slower, more thorough)
+            if detailed_analysis and _time_ok():
                 self._deep_scan_all_files(extracted_path)
 
-            self._build_critical_logs(extracted_path)
+            if _time_ok():
+                self._build_critical_logs(extracted_path)
+
+            if not _time_ok():
+                logger.warning(f"Analysis time budget exceeded ({_max_analysis_time}s), returning partial results")
             
             # Generate health assessment
             health = self._assess_cluster_health()
@@ -414,16 +434,21 @@ class MustGatherAnalyzer:
             yaml_files = 0
             json_files = 0
             log_files = 0
+            max_count = 50000
             
             for root, dirs, files in os.walk(path):
                 for file in files:
                     file_count += 1
+                    if file_count > max_count:
+                        break
                     if file.endswith(('.yaml', '.yml')):
                         yaml_files += 1
                     elif file.endswith('.json'):
                         json_files += 1
                     elif 'log' in file.lower() or file.endswith('.log'):
                         log_files += 1
+                if file_count > max_count:
+                    break
             
             logger.info(f"Bundle contains: {file_count} total files, {yaml_files} YAML, {json_files} JSON, {log_files} log files")
             self.key_features.update({
@@ -456,18 +481,29 @@ class MustGatherAnalyzer:
 
     def _deep_scan_all_files(self, path: str):
         """Perform deep scan of all files for comprehensive analysis."""
+        import time
         max_issues = 2500
+        max_files = 5000
+        max_time_seconds = 60
         try:
             logger.info("Starting deep log scan")
             scanned_files = 0
             issues_found = 0
+            start_time = time.time()
 
             for root, dirs, files in os.walk(path):
                 if len(self.issues) >= max_issues:
                     logger.info(f"Deep scan issue cap reached ({max_issues})")
                     break
+                if time.time() - start_time > max_time_seconds:
+                    logger.info(f"Deep scan time limit reached ({max_time_seconds}s)")
+                    break
                 for file in files:
                     if len(self.issues) >= max_issues:
+                        break
+                    if scanned_files >= max_files:
+                        break
+                    if time.time() - start_time > max_time_seconds:
                         break
                     file_path = os.path.join(root, file)
                     if not self._is_readable_file(file_path):
@@ -1106,70 +1142,77 @@ class MustGatherAnalyzer:
 
     def _extract_version_features(self, content: str):
         """Extract version-related features for anomaly detection"""
-        history_match = re.search(
-            r"state:\s*Partial\s*\n(?:[^\n]*\n)*?\s+version:\s*([0-9]+\.[0-9]+\.[0-9]+)",
-            content,
-        )
-        desired_match = re.search(
-            r"desired:\s*\n(?:\s+.+\n)+?^\s+version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$",
-            content,
-            re.MULTILINE,
-        )
+        lines = content.split('\n')
+
+        # Extract version from history entries (look for state: Partial or Completed)
         version = None
-        if history_match:
-            version = history_match.group(1)
-        elif desired_match:
-            version = desired_match.group(1)
+        upgrade_state = None
+        for line in lines:
+            if 'version:' in line and not version:
+                ver_match = re.search(r'version:\s*(\S+)', line)
+                if ver_match:
+                    v = ver_match.group(1)
+                    # Only accept semver-like strings
+                    if re.match(r'[0-9]+\.[0-9]+\.', v):
+                        version = v
+            if 'state:' in line:
+                state_match = re.search(r'state:\s*(\w+)', line)
+                if state_match:
+                    upgrade_state = state_match.group(1)
+
         if version:
             self.key_features["cluster_version"] = version
             self.cluster_info["cluster_version"] = version
 
-        if re.search(r"state:\s*Partial", content):
-            self.cluster_info["upgrade_state"] = "Partial"
+        if upgrade_state:
+            self.cluster_info["upgrade_state"] = upgrade_state
+            if upgrade_state == "Partial":
+                self.key_features["clusterversion_upgrade_partial"] = True
 
-        if re.search(r"type:\s*Failing[\s\S]*?status:\s*\"?True\"?", content):
-            self.cluster_info["upgrade_failing"] = True
-            self.key_features["clusterversion_failing"] = True
+        # Detect overrides warnings (blocks upgrades)
+        if "overrides" in content.lower() and "prevents" in content.lower():
+            self.cluster_info["has_overrides_warning"] = True
 
-        if re.search(r"type:\s*Available[\s\S]*?status:\s*\"?False\"?", content):
-            self.key_features["clusterversion_available"] = False
+        # Use line-based approach to find condition type + status pairs
+        for i, line in enumerate(lines):
+            if 'type:' not in line:
+                continue
+            nearby = '\n'.join(lines[max(0, i-2):min(len(lines), i+6)])
 
-        if re.search(r"type:\s*Progressing[\s\S]*?status:\s*\"?True\"?", content):
-            self.key_features["clusterversion_progressing"] = True
+            if 'Failing' in line:
+                if re.search(r'status:\s*"?True"?', nearby):
+                    self.cluster_info["upgrade_failing"] = True
+                    self.key_features["clusterversion_failing"] = True
 
-        progressing = re.search(
-            r"type:\s*Progressing[\s\S]*?message:\s*'([^']+)'",
-            content,
-        )
-        if not progressing:
-            progressing = re.search(
-                r"type:\s*Progressing[\s\S]*?message:\s*\"([^\"]+)\"",
-                content,
-            )
-        if progressing:
-            self.cluster_info["upgrade_message"] = progressing.group(1).strip()
+            if 'Available' in line:
+                if re.search(r'status:\s*"?False"?', nearby):
+                    self.key_features["clusterversion_available"] = False
 
-        failing_lt = re.search(
-            r"- lastTransitionTime:\s*\"?([^\"\n]+)\"?[\s\S]*?type:\s*Failing",
-            content,
-        )
-        started = re.search(
-            r"startedTime:\s*\"?([^\"\n]+)\"?[\s\S]*?state:\s*Partial",
-            content,
-        )
+            if 'Progressing' in line:
+                if re.search(r'status:\s*"?True"?', nearby):
+                    self.key_features["clusterversion_progressing"] = True
+                msg_m = re.search(r"message:\s*['\"]?([^'\"}\n]+)['\"]?", nearby)
+                if msg_m and 'message:' in nearby:
+                    msg = msg_m.group(1).strip()
+                    if len(msg) > 10:
+                        self.cluster_info["upgrade_message"] = msg[:200]
+
+        # Extract timestamps for duration calculation
         start_ts = None
         end_ts = None
-        for match in (started, failing_lt):
-            if not match:
-                continue
+        started_m = re.search(r'startedTime:\s*"?([^"\n]+)"?', content)
+        failing_lt_m = re.search(r'lastTransitionTime:\s*"?([^"\n]+)"?', content)
+        if started_m:
             try:
-                ts = datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
-                if match == started:
-                    start_ts = ts
-                else:
-                    end_ts = ts
+                start_ts = datetime.fromisoformat(started_m.group(1).strip().replace("Z", "+00:00"))
             except ValueError:
                 pass
+        if failing_lt_m and self.cluster_info.get("upgrade_failing"):
+            try:
+                end_ts = datetime.fromisoformat(failing_lt_m.group(1).strip().replace("Z", "+00:00"))
+            except ValueError:
+                pass
+
         if start_ts and end_ts and end_ts > start_ts:
             delta = end_ts - start_ts
             if delta.days > 0:
@@ -1411,7 +1454,15 @@ class MustGatherAnalyzer:
                    ["installing", "upgrade", "clusterversion", "unable to apply", "containerstatusunknown"])
         ]
 
-        if self._is_upgrade_failure() or upgrade_issues or len(operator_issues) >= 2:
+        # Only classify as upgrade failure if state is NOT Completed
+        upgrade_state = self.cluster_info.get("upgrade_state", "")
+        is_upgrade_problem = (
+            self._is_upgrade_failure()
+            or (upgrade_issues and upgrade_state != "Completed")
+            or (len(operator_issues) >= 2 and upgrade_state != "Completed")
+        )
+
+        if is_upgrade_problem:
             version = (
                 self.cluster_info.get("cluster_version")
                 or self.key_features.get("cluster_version", "")

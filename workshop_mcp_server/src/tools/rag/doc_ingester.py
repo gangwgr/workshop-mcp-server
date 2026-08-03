@@ -162,7 +162,26 @@ def index_folder(
     """
     folder = Path(folder_path)
     if not folder.exists():
-        return {"status": "error", "error": f"Folder not found: {folder_path}"}
+        return {"status": "error", "error": f"Path not found: {folder_path}"}
+
+    # Handle single file path — index just that file
+    if folder.is_file():
+        collection = get_or_create_collection(collection_name)
+        content = _read_file(str(folder))
+        if not content or len(content.strip()) < 20:
+            return {"status": "error", "error": f"File is empty or too small: {folder_path}"}
+        chunks = _chunk_text(content)
+        all_ids = [_compute_doc_id(chunk, f"{folder.name}:{i}") for i, chunk in enumerate(chunks)]
+        all_meta = [{"source": folder.name, "chunk_index": i, "total_chunks": len(chunks), "collection": collection_name} for i in range(len(chunks))]
+        batch_size = 50
+        for i in range(0, len(chunks), batch_size):
+            try:
+                embeddings = _embed_texts(chunks[i:i+batch_size])
+                collection.upsert(ids=all_ids[i:i+batch_size], documents=chunks[i:i+batch_size], embeddings=embeddings, metadatas=all_meta[i:i+batch_size])
+            except Exception as e:
+                logger.error(f"Indexing error: {e}")
+                return {"status": "error", "error": str(e)}
+        return {"status": "success", "collection": collection_name, "files_processed": 1, "chunks_indexed": len(chunks), "errors": 0, "skipped": 0}
 
     allowed_ext = set(file_extensions) if file_extensions else SUPPORTED_EXTENSIONS
     collection = get_or_create_collection(collection_name)
@@ -281,6 +300,15 @@ def index_web_url(
     all_ids = []
     all_metadatas = []
     pages_indexed = 0
+    fetch_errors = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+    }
 
     while to_visit and len(visited) < max_pages:
         current_url = to_visit.pop(0)
@@ -289,15 +317,21 @@ def index_web_url(
         visited.add(current_url)
 
         try:
-            resp = requests.get(current_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            resp = requests.get(current_url, timeout=20, headers=headers, allow_redirects=True)
             resp.raise_for_status()
             html = resp.text
+        except requests.exceptions.HTTPError as e:
+            fetch_errors.append(f"{current_url}: HTTP {resp.status_code}")
+            logger.warning(f"Failed to fetch {current_url}: {e}")
+            continue
         except Exception as e:
+            fetch_errors.append(f"{current_url}: {str(e)[:100]}")
             logger.warning(f"Failed to fetch {current_url}: {e}")
             continue
 
         text = _extract_text(html)
         if len(text) < 50:
+            fetch_errors.append(f"{current_url}: page returned insufficient text ({len(text)} chars)")
             continue
 
         if crawl:
@@ -320,7 +354,11 @@ def index_web_url(
         pages_indexed += 1
 
     if not all_chunks:
-        return {"status": "error", "error": "No content could be extracted from the URL"}
+        error_detail = "No content could be extracted from the URL."
+        if fetch_errors:
+            error_detail += f" Errors: {'; '.join(fetch_errors[:3])}"
+        error_detail += " Tip: Some sites (Red Hat docs, etc.) block automated requests. Try indexing a local folder instead: download the page or clone the docs repo."
+        return {"status": "error", "error": error_detail}
 
     batch_size = 50
     errors = 0
@@ -340,7 +378,7 @@ def index_web_url(
             logger.error(f"Batch indexing error: {e}")
             errors += 1
 
-    return {
+    result = {
         "status": "success",
         "collection": collection_name,
         "pages_indexed": pages_indexed,
@@ -348,6 +386,9 @@ def index_web_url(
         "urls_visited": list(visited),
         "errors": errors,
     }
+    if fetch_errors:
+        result["fetch_warnings"] = fetch_errors[:5]
+    return result
 
 
 def index_git_repo(

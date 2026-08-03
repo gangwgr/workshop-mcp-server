@@ -195,6 +195,13 @@ def api_run_mustgather_script():
         if not bundle_path:
             return jsonify({'status': 'error', 'error': 'bundle_path is required'}), 400
 
+        # If it's a URL, download it first
+        if bundle_path.startswith('http://') or bundle_path.startswith('https://'):
+            try:
+                bundle_path = _download_bundle_from_url(bundle_path)
+            except Exception as dl_err:
+                return jsonify({'status': 'error', 'error': f'Download failed: {str(dl_err)}'}), 400
+
         preset_id = data.get('preset')
         if preset_id:
             return jsonify(run_preset(preset_id, bundle_path))
@@ -217,11 +224,77 @@ def api_run_mustgather_script():
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
+def _download_bundle_from_url(url: str) -> str:
+    """Download a must-gather bundle from URL using curl (handles redirects/GCS auth best)."""
+    import tempfile
+    import subprocess
+    from urllib.parse import urlparse, unquote
+
+    parsed = urlparse(url)
+    filename = os.path.basename(unquote(parsed.path)) or 'must-gather-bundle'
+    if not any(filename.endswith(ext) for ext in ('.tar.gz', '.tar', '.zip', '.tgz')):
+        filename += '.tar.gz'
+
+    download_dir = os.path.join(tempfile.gettempdir(), 'mcp_mustgather_downloads')
+    os.makedirs(download_dir, exist_ok=True)
+    local_path = os.path.join(download_dir, filename)
+
+    # Use cached file if already downloaded and large enough to be valid
+    if os.path.exists(local_path) and os.path.getsize(local_path) > 1024:
+        return local_path
+
+    # Use curl -L which handles redirects and GCS web viewer URLs reliably
+    result = subprocess.run(
+        ['curl', '-L', '-f', '-s', '-o', local_path, '--max-time', '600', url],
+        capture_output=True, text=True, timeout=660
+    )
+
+    if result.returncode != 0:
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        error_msg = result.stderr.strip() or f"curl failed with exit code {result.returncode}"
+        raise ValueError(f"Download failed: {error_msg}")
+
+    if not os.path.exists(local_path):
+        raise ValueError("Download produced no file")
+
+    file_size = os.path.getsize(local_path)
+    if file_size < 1024:
+        os.remove(local_path)
+        raise ValueError(f"Downloaded file is too small ({file_size} bytes) — likely not a valid must-gather bundle or URL requires authentication")
+
+    return local_path
+
+
+@app.route('/api/download-bundle', methods=['POST'])
+def api_download_bundle():
+    """Download a must-gather bundle from URL and return the local path."""
+    try:
+        data = request.json or {}
+        url = (data.get('url') or '').strip()
+        if not url:
+            return jsonify({'status': 'error', 'error': 'url is required'}), 400
+        if not url.startswith('http://') and not url.startswith('https://'):
+            return jsonify({'status': 'error', 'error': 'Invalid URL'}), 400
+
+        local_path = _download_bundle_from_url(url)
+        file_size = os.path.getsize(local_path)
+        return jsonify({
+            'status': 'success',
+            'local_path': local_path,
+            'file_size': file_size,
+            'file_size_mb': round(file_size / (1024 * 1024), 1)
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/api/analyze-mustgather', methods=['POST'])
 def api_analyze_mustgather():
     """API endpoint for must-gather analysis."""
     try:
         import asyncio
+        import concurrent.futures
         data = request.json
 
         bundle_path = data.get('bundle_path', '')
@@ -233,6 +306,16 @@ def api_analyze_mustgather():
                 'error': 'Bundle path is required'
             }), 400
 
+        # If it's a URL, download it first
+        if bundle_path.startswith('http://') or bundle_path.startswith('https://'):
+            try:
+                bundle_path = _download_bundle_from_url(bundle_path)
+            except Exception as dl_err:
+                return jsonify({
+                    'status': 'error',
+                    'error': f'Failed to download bundle from URL: {str(dl_err)}'
+                }), 400
+
         # Check if path exists
         if not os.path.exists(bundle_path):
             return jsonify({
@@ -240,15 +323,39 @@ def api_analyze_mustgather():
                 'error': f'Path not found: {bundle_path}'
             }), 400
 
-        # Run async analysis in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Run analysis with timeout using subprocess
+        import subprocess as _sp
+        import json as _json
+        import tempfile
+
+        # Write a small script to run the analysis and output JSON
+        script = f"""
+import sys, json, asyncio
+sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}')
+from workshop_mcp_server.src.tools.mustgather_analyzer_tool import analyze_mustgather_bundle
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+try:
+    result = loop.run_until_complete(analyze_mustgather_bundle({repr(bundle_path)}, {repr(detailed_analysis)}))
+    print(json.dumps(result, default=str))
+except Exception as e:
+    print(json.dumps({{"status": "error", "error": str(e)}}))
+finally:
+    loop.close()
+"""
         try:
-            result = loop.run_until_complete(
-                analyze_mustgather_bundle(bundle_path, detailed_analysis)
+            proc_result = _sp.run(
+                [sys.executable, '-c', script],
+                capture_output=True, text=True, timeout=180,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             )
-        finally:
-            loop.close()
+            if proc_result.returncode == 0 and proc_result.stdout.strip():
+                result = _json.loads(proc_result.stdout.strip().split('\n')[-1])
+            else:
+                error_msg = proc_result.stderr.strip()[-500:] if proc_result.stderr else 'Unknown error'
+                result = {"status": "error", "error": f"Analysis failed: {error_msg}"}
+        except _sp.TimeoutExpired:
+            result = {"status": "error", "error": "Analysis timed out (180s). Try unchecking Deep log scanning or use a smaller bundle."}
 
         return jsonify(result)
     except Exception as e:
@@ -1500,4 +1607,4 @@ def api_kb_delete():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5001, threaded=True)
