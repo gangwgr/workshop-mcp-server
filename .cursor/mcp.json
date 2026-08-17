@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "workshop-mcp-server": {
+      "command": "python",
+      "args": ["-m", "workshop_mcp_server.src.main"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}

@@ -212,7 +212,7 @@
                     </div>
 
                     <form id="chatForm" style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="chatInput" placeholder="Ask a question about the diagnosis..."
+                        <input type="text" id="chatInput" placeholder="Ask a question or /help for commands..."
                                style="flex: 1; padding: 0.75rem; border: 1px solid #cbd5e0; border-radius: 0.375rem; font-size: 0.875rem;" required>
                         <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
                             <i class="fas fa-paper-plane"></i> Send
@@ -249,9 +249,30 @@
 </style>
 <script>
 $(document).ready(function() {
-    // Store diagnostic context globally for chat
     window.diagnosticContext = null;
     window.workflowCatalog = [];
+
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('issue')) {
+        $('#issue_description').val(decodeURIComponent(urlParams.get('issue')));
+    }
+
+    if (window.MCPSlashCommands) {
+        MCPSlashCommands.setContext({
+            scope: 'cluster_debugger',
+            onAnalyze: function() { $('#debugForm').trigger('submit'); },
+            onTriage: function(workflowId) {
+                if (!$('#workflow_select option[value="' + workflowId + '"]').length) {
+                    return { handled: true, message: 'Unknown workflow `' + workflowId + '`. Try: initial_triage, apiserver_health, pod_crashloop.' };
+                }
+                $('#workflow_select').val(workflowId).trigger('change');
+                $('#runWorkflowBtn').click();
+                return { handled: true };
+            },
+            onClear: function() { $('#chatMessages').empty(); }
+        });
+        MCPSlashCommands.interceptChatSubmit('#chatForm', '#chatInput', '#chatMessages');
+    }
 
     // Sync oc/kubeconfig between tabs
     $('#oc_path').on('input', function() { $('#oc_path_triage').val($(this).val()); });
@@ -840,6 +861,8 @@ $(document).ready(function() {
 
         const question = $('#chatInput').val().trim();
         if (!question) return;
+
+        if (window.MCPSlashCommands && MCPSlashCommands.isSlashCommand(question)) return;
 
         if (!window.diagnosticContext) {
             alert('Please run a diagnostic analysis first before asking questions.');

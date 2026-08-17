@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Cursor Integration - MCP Server{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1><i class="fas fa-bolt"></i> Cursor Integration</h1>
+        <p>Use this MCP server from Cursor IDE <strong>and</strong> use Cursor Agent models from the web UI.</p>
+    </div>
+
+    <div class="review-container">
+        <!-- MCP for Cursor IDE -->
+        <div class="settings-section">
+            <h3><i class="fas fa-plug"></i> 1. Cursor IDE → MCP Server</h3>
+            <p>Add this to <code>.cursor/mcp.json</code> in this repo (already included) or your global <code>~/.cursor/mcp.json</code>:</p>
+            <pre id="mcpConfig" style="background:#1a202c;color:#e2e8f0;padding:1rem;border-radius:0.5rem;overflow:auto;font-size:0.8rem;">{{ mcp_config }}</pre>
+            <button type="button" class="btn btn-primary" onclick="copyMcpConfig()"><i class="fas fa-copy"></i> Copy MCP Config</button>
+            <p style="margin-top:1rem;color:#718096;font-size:0.9rem;">
+                Restart Cursor. Then ask: <em>"Analyze must-gather at /path/to/bundle"</em> or <em>"Debug my apiserver pods"</em> — Cursor will call your MCP tools.
+            </p>
+        </div>
+
+        <!-- Cursor commands in IDE -->
+        <div class="settings-section">
+            <h3><i class="fas fa-terminal"></i> 2. Cursor IDE Slash Commands</h3>
+            <p>Custom commands live in <code>.cursor/commands/</code>. Type <code>/</code> in Cursor chat:</p>
+            <table class="table table-sm" style="font-size:0.9rem;">
+                <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                <tbody>
+                    {% for cmd in cursor_commands %}
+                    <tr><td><code>{{ cmd.usage }}</code></td><td>{{ cmd.description }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Web UI Cursor Agent -->
+        <div class="settings-section">
+            <h3><i class="fas fa-desktop"></i> 3. Web UI → Cursor Agent Models</h3>
+            <ol style="line-height:1.8;">
+                <li>Get API key from <a href="https://cursor.com/dashboard/integrations" target="_blank">cursor.com/dashboard/integrations</a></li>
+                <li><a href="/settings">Settings</a> → Cursor Agent → paste <code>CURSOR_API_KEY</code></li>
+                <li>Top nav → select <strong>Cursor Agent</strong> and model (e.g. <code>composer-2.5</code>)</li>
+                <li>Run Must-Gather or Cluster Debugger — LLM analysis uses Cursor SDK</li>
+            </ol>
+            <p style="color:#718096;font-size:0.9rem;">
+                With <code>CURSOR_ATTACH_MCP=true</code>, the Cursor agent can also call your workshop MCP tools during analysis.
+            </p>
+        </div>
+
+        <!-- Web UI slash commands -->
+        <div class="settings-section">
+            <h3><i class="fas fa-keyboard"></i> 4. Web UI Slash Commands</h3>
+            <p>In any chat box (Must-Gather, Cluster Debugger), type:</p>
+            <table class="table table-sm" style="font-size:0.9rem;">
+                <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                <tbody>
+                    {% for cmd in slash_commands %}
+                    <tr><td><code>{{ cmd.usage }}</code></td><td>{{ cmd.description }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copyMcpConfig() {
+    var text = document.getElementById('mcpConfig').innerText;
+    navigator.clipboard.writeText(text).then(function() {
+        alert('MCP config copied!');
+    });
+}
+</script>
+<style>
+.settings-section { margin-bottom: 2rem; padding: 1.5rem; background: white; border-radius: 0.5rem; border: 1px solid #e2e8f0; }
+.settings-section h3 { margin-bottom: 1rem; color: #2d3748; }
+</style>
+{% endblock %}

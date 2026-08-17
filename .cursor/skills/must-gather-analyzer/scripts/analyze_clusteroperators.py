@@ -11,6 +11,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from mg_resource_finder import (
+    PARTIAL_BUNDLE_HINT,
+    FALLBACK_HINT,
+    bundle_completeness,
+    find_clusteroperator_docs,
+    infer_operators_from_namespaces,
+)
+
 
 def parse_clusteroperator(file_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a single clusteroperator YAML file."""
@@ -141,26 +149,26 @@ def analyze_clusteroperators(must_gather_path: str):
     """Analyze all clusteroperators in a must-gather directory."""
     base_path = Path(must_gather_path)
 
-    # Common paths where clusteroperators might be
-    possible_patterns = [
-        "cluster-scoped-resources/config.openshift.io/clusteroperators/*.yaml",
-        "*/cluster-scoped-resources/config.openshift.io/clusteroperators/*.yaml",
-    ]
-
-    clusteroperators = []
-
-    # Find and parse all clusteroperator files
-    for pattern in possible_patterns:
-        for co_file in base_path.glob(pattern):
-            operator = parse_clusteroperator(co_file)
-            if operator:
-                clusteroperators.append(operator)
+    clusteroperators = find_clusteroperator_docs(base_path)
 
     if not clusteroperators:
+        inferred = infer_operators_from_namespaces(base_path)
+        if inferred:
+            completeness = bundle_completeness(base_path)
+            print("⚠️  ClusterOperator YAML not in bundle — showing inferred status from operator pods:\n")
+            print_operators_table(inferred)
+            if completeness.get("hint"):
+                print(f"\n{completeness['hint']}")
+            return 0
+
+        completeness = bundle_completeness(base_path)
         print("No resources found.", file=sys.stderr)
+        if completeness["partial"]:
+            print(f"\n⚠️  Partial must-gather bundle (missing: {', '.join(completeness['missing'])}).", file=sys.stderr)
+            print(PARTIAL_BUNDLE_HINT, file=sys.stderr)
         return 1
 
-    # Remove duplicates (same operator from different glob patterns)
+    # Remove duplicates (same operator from different paths)
     seen = set()
     unique_operators = []
     for op in clusteroperators:

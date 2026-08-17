@@ -13,6 +13,10 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Optional
 
+# Suppress ChromaDB/posthog telemetry noise before import
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY", "FALSE")
+
 import chromadb
 from chromadb.config import Settings
 
@@ -33,6 +37,19 @@ SUPPORTED_EXTENSIONS = {
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
+_embed_unavailable_logged = False
+
+
+def ollama_embeddings_available() -> bool:
+    """True when Ollama is reachable for nomic-embed-text."""
+    import requests
+
+    ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        resp = requests.get(f"{ollama_url}/api/tags", timeout=2)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 def get_chroma_client() -> chromadb.ClientAPI:
@@ -121,8 +138,18 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     """Embed texts using Ollama's nomic-embed-text model."""
     import requests
 
+    global _embed_unavailable_logged
     ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     embeddings = []
+
+    if not ollama_embeddings_available():
+        if not _embed_unavailable_logged:
+            logger.debug(
+                "Ollama not reachable for embeddings — skipping RAG vector search. "
+                "Start Ollama (`ollama serve`) and pull `nomic-embed-text` for KB features."
+            )
+            _embed_unavailable_logged = True
+        return [[0.0] * 768 for _ in texts]
 
     for text in texts:
         try:
@@ -139,7 +166,7 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
             else:
                 embeddings.append([0.0] * 768)
         except Exception as e:
-            logger.warning(f"Embedding failed: {e}")
+            logger.debug(f"Embedding failed: {e}")
             embeddings.append([0.0] * 768)
 
     return embeddings

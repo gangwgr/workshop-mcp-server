@@ -14,6 +14,11 @@ logger = get_python_logger()
 
 def _embed_query(query: str) -> List[float]:
     """Embed a single query using Ollama nomic-embed-text."""
+    from workshop_mcp_server.src.tools.rag.doc_ingester import ollama_embeddings_available
+
+    if not ollama_embeddings_available():
+        return [0.0] * 768
+
     import requests
 
     ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -27,7 +32,7 @@ def _embed_query(query: str) -> List[float]:
         data = resp.json()
         return data.get("embeddings", [[]])[0]
     except Exception as e:
-        logger.error(f"Query embedding failed: {e}")
+        logger.debug(f"Query embedding failed: {e}")
         return [0.0] * 768
 
 

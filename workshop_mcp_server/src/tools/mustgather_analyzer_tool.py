@@ -17,6 +17,7 @@ import gzip
 import tarfile
 import zipfile
 import shutil
+import yaml
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from datetime import datetime, timezone
 
 from workshop_mcp_server.utils.pylogger import get_python_logger
 from workshop_mcp_server.src.tools.mustgather_paths import (
+    extraction_is_complete,
     has_mustgather_markers,
     resolve_mustgather_data_root,
 )
@@ -108,18 +110,28 @@ class MustGatherAnalyzer:
         self.node_states: Dict[str, Any] = {}
         self.bundle_root: str = ""
         self.critical_logs: List[Dict[str, Any]] = []
+        self.authoritative_health: Dict[str, Any] = {}
 
-    _STRUCTURED_SKIP_PATHS = (
+    _STRUCTURED_SKIP_PREFIXES = (
+        "cluster-scoped-resources/",
         "apiextensions.k8s.io/customresourcedefinitions",
         "migration.k8s.io/storageversionmigrations",
         "imageregistry.operator.openshift.io/imagepruners",
     )
+
+    _STRUCTURED_SKIP_PATHS = _STRUCTURED_SKIP_PREFIXES
 
     _GATHER_ARTIFACT_PATTERNS = (
         r"skipping gathering.*due to error",
         r"is deprecated in v4\.\d+",
         r"DeploymentConfig is deprecated",
         r"unavailable in v4\.\d+",
+        r"doesn'?t have a resource type",
+        r"does not have a resource type",
+        r"could not find the requested resource",
+        r"the server could not find the requested resource",
+        r"no matches for kind",
+        r"inspection completed with the errors occurred",
     )
 
     def _rel_path(self, file_path: str) -> str:
@@ -141,6 +153,260 @@ class MustGatherAnalyzer:
     def _is_gather_artifact(self, line: str) -> bool:
         """Lines that reflect must-gather collection noise, not cluster failures."""
         return any(re.search(p, line, re.IGNORECASE) for p in self._GATHER_ARTIFACT_PATTERNS)
+
+    def _condition_status(self, conditions: List[Dict[str, Any]], condition_type: str) -> Optional[str]:
+        for condition in conditions or []:
+            if condition.get("type") == condition_type:
+                return condition.get("status")
+        return None
+
+    def _load_yaml_docs(self, file_path: Path) -> List[Dict[str, Any]]:
+        if not file_path.is_file():
+            return []
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as handle:
+                docs = []
+                for doc in yaml.safe_load_all(handle):
+                    if isinstance(doc, dict):
+                        docs.append(doc)
+                return docs
+        except Exception:
+            return []
+
+    def _extract_list_items(self, file_path: Path, kind: str) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        for doc in self._load_yaml_docs(file_path):
+            if doc.get("kind") == kind:
+                items.append(doc)
+            for item in doc.get("items") or []:
+                if isinstance(item, dict) and item.get("kind") == kind:
+                    items.append(item)
+        return items
+
+    def _load_authoritative_cluster_health(self, path: str) -> None:
+        """Parse ClusterVersion / ClusterOperator / Node YAML for ground-truth health."""
+        base = Path(path)
+        cfg = base / "cluster-scoped-resources" / "config.openshift.io"
+        health = {
+            "loaded": False,
+            "cv_available": None,
+            "cv_progressing": None,
+            "cv_failing": None,
+            "upgrade_state": None,
+            "operators_degraded": 0,
+            "operators_unavailable": 0,
+            "operators_progressing": 0,
+            "nodes_not_ready": 0,
+            "nodes_ready": 0,
+        }
+
+        cv_docs: List[Dict[str, Any]] = []
+        cv_list = cfg / "clusterversions.yaml"
+        if cv_list.is_file():
+            cv_docs = self._extract_list_items(cv_list, "ClusterVersion")
+        if not cv_docs:
+            cv_dir = cfg / "clusterversions"
+            if cv_dir.is_dir():
+                for cv_file in cv_dir.glob("*.yaml"):
+                    cv_docs.extend(self._extract_list_items(cv_file, "ClusterVersion"))
+
+        if cv_docs:
+            cv = cv_docs[0]
+            conditions = cv.get("status", {}).get("conditions", [])
+            health["cv_available"] = self._condition_status(conditions, "Available") == "True"
+            health["cv_progressing"] = self._condition_status(conditions, "Progressing") == "True"
+            health["cv_failing"] = self._condition_status(conditions, "Failing") == "True"
+            history = cv.get("status", {}).get("history") or []
+            if history:
+                health["upgrade_state"] = history[0].get("state")
+            version = cv.get("status", {}).get("desired", {}).get("version")
+            if version:
+                self.cluster_info["cluster_version"] = version
+                self.key_features["cluster_version"] = version
+
+        co_docs: List[Dict[str, Any]] = []
+        co_list = cfg / "clusteroperators.yaml"
+        if co_list.is_file():
+            co_docs = self._extract_list_items(co_list, "ClusterOperator")
+        co_dir = cfg / "clusteroperators"
+        if co_dir.is_dir():
+            for co_file in co_dir.glob("*.yaml"):
+                for doc in self._extract_list_items(co_file, "ClusterOperator"):
+                    name = doc.get("metadata", {}).get("name")
+                    if name and not any(existing.get("metadata", {}).get("name") == name for existing in co_docs):
+                        co_docs.append(doc)
+
+        self.operator_conditions = {}
+        for co in co_docs:
+            name = co.get("metadata", {}).get("name", "unknown")
+            conditions = co.get("status", {}).get("conditions", [])
+            self.operator_conditions[name] = conditions
+            if self._condition_status(conditions, "Degraded") == "True":
+                health["operators_degraded"] += 1
+            if self._condition_status(conditions, "Available") == "False":
+                health["operators_unavailable"] += 1
+            if self._condition_status(conditions, "Progressing") == "True":
+                health["operators_progressing"] += 1
+
+        nodes_dir = base / "cluster-scoped-resources" / "core" / "nodes"
+        if nodes_dir.is_dir():
+            for node_file in nodes_dir.glob("*.yaml"):
+                if node_file.name == "nodes.yaml":
+                    continue
+                for doc in self._extract_list_items(node_file, "Node"):
+                    if str(doc.get("apiVersion", "")).startswith("config.openshift.io"):
+                        continue
+                    ready = self._condition_status(doc.get("status", {}).get("conditions", []), "Ready")
+                    if ready == "True":
+                        health["nodes_ready"] += 1
+                    elif ready == "False":
+                        health["nodes_not_ready"] += 1
+
+        if cv_docs or co_docs or health["nodes_ready"] or health["nodes_not_ready"]:
+            health["loaded"] = True
+
+        self.authoritative_health = health
+        if health["cv_available"] is not None:
+            self.key_features["clusterversion_available"] = health["cv_available"]
+        if health["cv_progressing"] is not None:
+            self.key_features["clusterversion_progressing"] = health["cv_progressing"]
+        if health["cv_failing"] is not None:
+            self.key_features["clusterversion_failing"] = health["cv_failing"]
+        if health["upgrade_state"]:
+            self.cluster_info["upgrade_state"] = health["upgrade_state"]
+        self.key_features["operators_degraded"] = health["operators_degraded"]
+        self.key_features["operators_unavailable"] = health["operators_unavailable"]
+        self.key_features["operators_progressing"] = health["operators_progressing"]
+        self.key_features["nodes_notready"] = health["nodes_not_ready"]
+        self.key_features["nodes_ready"] = health["nodes_ready"]
+
+    _CRITICAL_LOG_PATTERNS = (
+        "crashloopbackoff",
+        "oomkilled",
+        "unable to handle the request",
+        "database space exceeded",
+        "leader changed",
+        "leader lost",
+        "no leader",
+        "etcdserver: request timed out",
+        "apply request took too long",
+        "apiservicesdegraded",
+        "node not ready",
+        "authentication operator.*degraded",
+    )
+
+    _CRITICAL_EVENT_TYPES = frozenset({
+        "CrashLoopBackOff", "OOMKilled", "FailedMount",
+    })
+
+    _NON_CRITICAL_LOG_PATTERNS = (
+        "timeout or abort while handling",
+        "watch chan error: etcdserver: mvcc",
+    )
+
+    def _is_hard_noise(self, issue: MustGatherIssue) -> bool:
+        """Must-gather collection artifacts and YAML substring false positives."""
+        desc = (issue.description or "").lower()
+        file_path = (issue.file_path or "").lower()
+
+        if issue.category == "configuration":
+            return True
+
+        gather_noise = (
+            "doesn't have a resource type",
+            "does not have a resource type",
+            "could not find the requested resource",
+            "the server could not find the requested resource",
+            "no matches for kind",
+            "skipping gathering",
+        )
+        if any(token in desc for token in gather_noise):
+            return True
+
+        if "gather.log" in file_path and issue.category == "logs":
+            return True
+
+        if issue.category == "pods" and "/pods/installer-" in file_path:
+            return True
+
+        if issue.category == "operators" and "pattern '" in desc:
+            return True
+
+        if issue.category == "logs" and any(token in desc for token in self._NON_CRITICAL_LOG_PATTERNS):
+            return True
+
+        return False
+
+    def _is_critical_log_or_event(self, issue: MustGatherIssue) -> bool:
+        """High-signal log lines or events that may indicate active failure."""
+        desc = issue.description or ""
+
+        if issue.category == "events":
+            if not issue.title.startswith("Events in"):
+                return False
+            return any(evt in desc for evt in self._CRITICAL_EVENT_TYPES)
+
+        if issue.category == "logs":
+            desc_lower = desc.lower()
+            return any(re.search(pat, desc_lower, re.IGNORECASE) for pat in self._CRITICAL_LOG_PATTERNS)
+
+        return issue.severity == "critical"
+
+    def _issue_buckets(self) -> Dict[str, Any]:
+        """Classify issues: hard noise, critical log/event, non-critical log/event, other."""
+        buckets: Dict[str, Any] = {
+            "noise": [],
+            "critical_logs_events": [],
+            "non_critical_logs_events": [],
+            "other_critical": [],
+            "warnings": [],
+            "actionable": [],
+        }
+
+        for issue in self.issues:
+            if self._is_hard_noise(issue):
+                buckets["noise"].append(issue)
+                continue
+
+            buckets["actionable"].append(issue)
+
+            if issue.category in ("logs", "events"):
+                if self._is_critical_log_or_event(issue):
+                    buckets["critical_logs_events"].append(issue)
+                else:
+                    buckets["non_critical_logs_events"].append(issue)
+                if issue.severity == "warning":
+                    buckets["warnings"].append(issue)
+                continue
+
+            if issue.severity == "critical":
+                buckets["other_critical"].append(issue)
+            elif issue.severity == "warning":
+                buckets["warnings"].append(issue)
+
+        buckets["summary"] = {
+            "noise_suppressed": len(buckets["noise"]),
+            "critical_logs_events": len(buckets["critical_logs_events"]),
+            "non_critical_logs_events": len(buckets["non_critical_logs_events"]),
+            "other_critical": len(buckets["other_critical"]),
+            "warnings": len(buckets["warnings"]),
+        }
+        return buckets
+
+    def _actionable_issues(self) -> List[MustGatherIssue]:
+        return self._issue_buckets()["actionable"]
+
+    def _cluster_is_authoritatively_healthy(self) -> bool:
+        health = self.authoritative_health
+        if not health.get("loaded"):
+            return False
+        return (
+            health.get("cv_available") is True
+            and not health.get("cv_failing")
+            and health.get("operators_unavailable", 0) == 0
+            and health.get("operators_degraded", 0) == 0
+            and health.get("nodes_not_ready", 0) == 0
+        )
 
     def _upgrade_duration_text(self) -> str:
         return self.cluster_info.get("upgrade_duration", "")
@@ -281,27 +547,41 @@ class MustGatherAnalyzer:
 
             if not _time_ok():
                 logger.warning(f"Analysis time budget exceeded ({_max_analysis_time}s), returning partial results")
+
+            buckets = self._issue_buckets()
+            actionable = buckets["actionable"]
+            log_event_summary = buckets["summary"]
             
             # Generate health assessment
-            health = self._assess_cluster_health()
+            health = self._assess_cluster_health(buckets)
             
             # Perform anomaly detection
-            anomaly_result = self._detect_anomalies()
+            anomaly_result = self._detect_anomalies(buckets)
             
             # Generate SRE diagnostic report
-            sre_report = self._generate_sre_diagnostic_report(health, anomaly_result)
+            sre_report = self._generate_sre_diagnostic_report(health, anomaly_result, buckets)
             
             # Generate traditional report for compatibility
             report = self._generate_report(health)
             
-            logger.info(f"Analysis complete. Found {len(self.issues)} issues")
+            logger.info(
+                f"Analysis complete. {log_event_summary['noise_suppressed']} noise signals suppressed; "
+                f"{log_event_summary['critical_logs_events']} critical and "
+                f"{log_event_summary['non_critical_logs_events']} non-critical log/event signals"
+            )
 
+            # Prioritize critical log/event issues in UI list
             issues_for_ui = []
-            for issue in self.issues[:100]:
+            priority = (
+                buckets["other_critical"]
+                + buckets["critical_logs_events"]
+                + buckets["non_critical_logs_events"][:50]
+            )
+            for issue in priority[:100]:
                 d = issue.__dict__.copy()
                 d["file_path"] = self._rel_path(d.get("file_path", ""))
                 issues_for_ui.append(d)
-            issues_truncated = len(self.issues) > 100
+            issues_truncated = len(priority) > 100
 
             return {
                 "status": "success",
@@ -309,7 +589,9 @@ class MustGatherAnalyzer:
                 "cluster_health": health.__dict__,
                 "anomaly_detection_result": anomaly_result.__dict__,
                 "sre_diagnostic_report": sre_report.__dict__,
-                "issues_found": len(self.issues),
+                "log_event_summary": log_event_summary,
+                "issues_found": len(actionable),
+                "raw_issues_found": len(self.issues),
                 "issues_truncated": issues_truncated,
                 "issues": issues_for_ui,
                 "critical_logs": self.critical_logs,
@@ -345,16 +627,19 @@ class MustGatherAnalyzer:
         tar_mtime = os.path.getmtime(bundle_path)
         tar_size = os.path.getsize(bundle_path)
 
-        # Reuse existing extraction only if tar unchanged and data has YAML resources
+        # Reuse existing extraction only if tar unchanged and extraction is complete
         if os.path.isdir(extract_dir) and os.path.isfile(stamp_file):
             try:
                 with open(stamp_file, "r", encoding="utf-8") as f:
                     stamp = json.load(f)
                 if stamp.get("mtime") == tar_mtime and stamp.get("size") == tar_size:
                     existing = resolve_mustgather_data_root(extract_dir)
-                    if has_mustgather_markers(existing):
+                    if has_mustgather_markers(existing) and extraction_is_complete(extract_dir, bundle_path):
                         logger.info(f"Reusing existing extraction: {existing}")
                         return existing
+                    logger.warning(
+                        "Cached extraction is incomplete (missing config.openshift.io resources) — re-extracting"
+                    )
             except Exception:
                 pass
 
@@ -400,6 +685,12 @@ class MustGatherAnalyzer:
             
         # Find the actual must-gather root directory
         data_root = resolve_mustgather_data_root(extract_dir)
+        if not extraction_is_complete(extract_dir, bundle_path):
+            raise ValueError(
+                "Must-gather archive extraction looks incomplete — "
+                "cluster-scoped config.openshift.io resources are missing. "
+                "Try re-downloading the bundle or extract it manually."
+            )
         try:
             with open(stamp_file, "w", encoding="utf-8") as f:
                 json.dump({"mtime": tar_mtime, "size": tar_size}, f)
@@ -551,6 +842,9 @@ class MustGatherAnalyzer:
     def _analyze_structured_file(self, file_path: str, relative_dir: str) -> bool:
         """Analyze a YAML or JSON file for issues"""
         try:
+            rel_path = self._rel_path(file_path)
+            if rel_path.startswith("cluster-scoped-resources/"):
+                return False
             if any(skip in file_path for skip in self._STRUCTURED_SKIP_PATHS):
                 return False
 
@@ -617,6 +911,8 @@ class MustGatherAnalyzer:
                     continue
 
                 if re.search(r'(ERROR|FATAL|CRITICAL)', line, re.IGNORECASE):
+                    if self._is_gather_artifact(line):
+                        continue
                     if is_gather_log and re.search(
                         r'skipping gathering|inspection completed with the errors occurred',
                         line,
@@ -749,40 +1045,36 @@ class MustGatherAnalyzer:
     def _analyze_operators(self, path: str):
         """Analyze cluster operators in detail"""
         try:
-            operators_path = os.path.join(path, "cluster-scoped-resources/config.openshift.io/clusteroperators")
-            if os.path.exists(operators_path):
-                logger.info("Analyzing cluster operators")
-                
-                for operator_file in os.listdir(operators_path):
-                    if operator_file.endswith('.yaml'):
-                        operator_path = os.path.join(operators_path, operator_file)
-                        with open(operator_path, 'r') as f:
-                            content = f.read()
-                        
-                        operator_name = operator_file.replace('.yaml', '')
-                        
-                        # Check operator conditions
-                        if 'degraded: "true"' in content or 'degraded: true' in content:
-                            self.issues.append(MustGatherIssue(
-                                severity="critical",
-                                category="operators",
-                                component=operator_name,
-                                title=f"Operator {operator_name} is degraded",
-                                description=f"Cluster operator {operator_name} is in degraded state",
-                                file_path=f"cluster-scoped-resources/config.openshift.io/clusteroperators/{operator_file}",
-                                suggested_fix=f"Check {operator_name} operator logs and configuration"
-                            ))
-                            
-                        if 'available: "false"' in content or 'available: false' in content:
-                            self.issues.append(MustGatherIssue(
-                                severity="critical",
-                                category="operators",
-                                component=operator_name,
-                                title=f"Operator {operator_name} is unavailable",
-                                description=f"Cluster operator {operator_name} is not available",
-                                file_path=f"cluster-scoped-resources/config.openshift.io/clusteroperators/{operator_file}",
-                                suggested_fix=f"Investigate {operator_name} operator deployment and dependencies"
-                            ))
+            if not self.operator_conditions:
+                self._load_authoritative_cluster_health(path)
+
+            for operator_name, conditions in self.operator_conditions.items():
+                rel_path = f"cluster-scoped-resources/config.openshift.io/clusteroperators/{operator_name}.yaml"
+                if self._condition_status(conditions, "Degraded") == "True":
+                    degraded_msg = next(
+                        (c.get("message", "") for c in conditions if c.get("type") == "Degraded"),
+                        "",
+                    )
+                    self.issues.append(MustGatherIssue(
+                        severity="critical",
+                        category="operators",
+                        component=operator_name,
+                        title=f"Operator {operator_name} is degraded",
+                        description=degraded_msg or f"Cluster operator {operator_name} is in degraded state",
+                        file_path=rel_path,
+                        suggested_fix=f"Check {operator_name} operator logs and configuration",
+                    ))
+
+                if self._condition_status(conditions, "Available") == "False":
+                    self.issues.append(MustGatherIssue(
+                        severity="critical",
+                        category="operators",
+                        component=operator_name,
+                        title=f"Operator {operator_name} is unavailable",
+                        description=f"Cluster operator {operator_name} is not available",
+                        file_path=rel_path,
+                        suggested_fix=f"Investigate {operator_name} operator deployment and dependencies",
+                    ))
             
             # Also check for operator pods
             operator_namespaces = [
@@ -833,6 +1125,8 @@ class MustGatherAnalyzer:
     def _analyze_cluster_info(self, path: str):
         """Analyze cluster information"""
         try:
+            self._load_authoritative_cluster_health(path)
+
             cluster_info_files = [
                 "cluster-scoped-resources/config.openshift.io/clusterversions.yaml",
                 "cluster-scoped-resources/config.openshift.io/clusteroperators.yaml",
@@ -969,9 +1263,6 @@ class MustGatherAnalyzer:
                 "openshift-cluster-version",
             }
 
-            critical_event_types = {"Unhealthy", "CrashLoopBackOff", "OOMKilled", "FailedSync"}
-            high_event_types = {"FailedScheduling", "FailedMount", "Failed"}
-
             for namespace in sorted(os.listdir(namespaces_path)):
                 if event_count >= max_event_issues:
                     break
@@ -984,20 +1275,18 @@ class MustGatherAnalyzer:
                     error_events = [
                         "FailedScheduling", "FailedMount", "FailedSync",
                         "Unhealthy", "CrashLoopBackOff", "OOMKilled",
-                        "Failed", "Error",
                     ]
 
                     found_types = [evt for evt in error_events if evt in content]
                     if found_types:
                         found_set = set(found_types)
                         is_critical_ns = namespace in critical_namespaces
+                        has_critical_event = bool(found_set & self._CRITICAL_EVENT_TYPES)
 
-                        if found_set & critical_event_types and is_critical_ns:
+                        if has_critical_event and is_critical_ns:
                             severity = "critical"
-                        elif (found_set & critical_event_types) or (found_set & high_event_types and is_critical_ns):
-                            severity = "critical"
-                        elif len(found_types) >= 3 and is_critical_ns:
-                            severity = "critical"
+                        elif has_critical_event:
+                            severity = "warning"
                         else:
                             severity = "warning"
 
@@ -1140,11 +1429,13 @@ class MustGatherAnalyzer:
             # Store cluster information and extract key features
             if "clusterversion" in relative_path.lower():
                 self.cluster_info["version_info"] = "Found in " + relative_path
-                self._extract_version_features(content)
+                if not self.authoritative_health.get("loaded"):
+                    self._extract_version_features(content)
             elif "clusteroperator" in relative_path.lower():
                 self.cluster_info["operators_info"] = "Found in " + relative_path
-                self._extract_operator_features(content)
-            elif "nodes" in relative_path.lower():
+                if not self.authoritative_health.get("loaded"):
+                    self._extract_operator_features(content)
+            elif "nodes" in relative_path.lower() and not self.authoritative_health.get("loaded"):
                 self._extract_node_features(content)
                 
             # Add relevant snippets for analysis
@@ -1193,16 +1484,11 @@ class MustGatherAnalyzer:
                 continue
             nearby = '\n'.join(lines[max(0, i-2):min(len(lines), i+6)])
 
-            if 'Failing' in line:
-                if re.search(r'status:\s*"?True"?', nearby):
-                    self.cluster_info["upgrade_failing"] = True
-                    self.key_features["clusterversion_failing"] = True
-
-            if 'Available' in line:
+            if re.search(r'type:\s*Available\b', line):
                 if re.search(r'status:\s*"?False"?', nearby):
                     self.key_features["clusterversion_available"] = False
 
-            if 'Progressing' in line:
+            if re.search(r'type:\s*Progressing\b', line):
                 if re.search(r'status:\s*"?True"?', nearby):
                     self.key_features["clusterversion_progressing"] = True
                 msg_m = re.search(r"message:\s*['\"]?([^'\"}\n]+)['\"]?", nearby)
@@ -1210,6 +1496,11 @@ class MustGatherAnalyzer:
                     msg = msg_m.group(1).strip()
                     if len(msg) > 10:
                         self.cluster_info["upgrade_message"] = msg[:200]
+
+            if re.search(r'type:\s*Failing\b', line):
+                if re.search(r'status:\s*"?True"?', nearby):
+                    self.cluster_info["upgrade_failing"] = True
+                    self.key_features["clusterversion_failing"] = True
 
         # Extract timestamps for duration calculation
         start_ts = None
@@ -1265,26 +1556,53 @@ class MustGatherAnalyzer:
         if "notready" in content.lower() or "diskpressure" in content.lower():
             self.relevant_snippets.append(f"Node Issues:\n{content[:600]}...")
 
-    def _detect_anomalies(self) -> AnomalyDetectionResult:
+    def _detect_anomalies(self, buckets: Optional[Dict[str, Any]] = None) -> AnomalyDetectionResult:
         """Detect anomalies in the cluster based on collected features"""
         try:
             anomaly_score = 0.0
             primary_anomalies = []
+            if buckets is None:
+                buckets = self._issue_buckets()
+            issues = buckets["actionable"]
+            summary = buckets["summary"]
+            critical_log_events = summary["critical_logs_events"]
+            non_critical_log_events = summary["non_critical_logs_events"]
+            other_critical = summary["other_critical"]
             
-            # Critical issues scoring
-            critical_issues = len([i for i in self.issues if i.severity == "critical"])
-            if critical_issues > 0:
-                anomaly_score += min(critical_issues * 0.2, 0.8)
-                primary_anomalies.append(f"{critical_issues} critical issues detected")
+            total_critical = critical_log_events + other_critical
+            warning_issues = summary["warnings"]
             
-            # Warning issues scoring (many warnings = something is wrong)
-            warning_issues = len([i for i in self.issues if i.severity == "warning"])
-            if warning_issues >= 10:
-                anomaly_score += min(warning_issues * 0.03, 0.5)
-                primary_anomalies.append(f"{warning_issues} warning issues across components")
-            elif warning_issues >= 5:
-                anomaly_score += min(warning_issues * 0.02, 0.3)
-                primary_anomalies.append(f"{warning_issues} warning issues detected")
+            if total_critical > 0:
+                anomaly_score += min(total_critical * 0.25, 0.8)
+                primary_anomalies.append(f"{total_critical} critical issues detected")
+
+            if self._cluster_is_authoritatively_healthy():
+                primary_anomalies = [
+                    "ClusterVersion, ClusterOperators, and Nodes report healthy in YAML",
+                ]
+                if critical_log_events:
+                    anomaly_score = min(0.35 + critical_log_events * 0.1, 0.75)
+                    primary_anomalies.append(
+                        f"{critical_log_events} critical log/event signal(s) require review"
+                    )
+                    return AnomalyDetectionResult(
+                        status="ANOMALOUS",
+                        score=anomaly_score,
+                        severity="🟡 Warning",
+                        primary_anomalies=primary_anomalies,
+                        confidence="High",
+                    )
+                if non_critical_log_events:
+                    primary_anomalies.append(
+                        f"{non_critical_log_events} non-critical log/event entries — review if symptoms match"
+                    )
+                return AnomalyDetectionResult(
+                    status="NORMAL",
+                    score=min(non_critical_log_events * 0.002, 0.12),
+                    severity="🟢 Normal",
+                    primary_anomalies=primary_anomalies,
+                    confidence="High",
+                )
 
             # ClusterVersion health — check if upgrade is stuck/failing
             cv_available = self.key_features.get("clusterversion_available", True)
@@ -1374,11 +1692,11 @@ class MustGatherAnalyzer:
                 confidence="Low"
             )
 
-    def _generate_sre_diagnostic_report(self, health: ClusterHealth, anomaly_result: AnomalyDetectionResult) -> SREDiagnosticReport:
+    def _generate_sre_diagnostic_report(self, health: ClusterHealth, anomaly_result: AnomalyDetectionResult, buckets: Optional[Dict[str, Any]] = None) -> SREDiagnosticReport:
         """Generate professional SRE diagnostic report following incident response methodology"""
         try:
             # 1. Identify PRIMARY ISSUE with evidence and impact (root cause analysis)
-            primary_issue, evidence, impact = self._identify_primary_issue()
+            primary_issue, evidence, impact = self._identify_primary_issue(buckets)
             
             # 2. Generate immediate actions based on the primary issue type
             immediate_actions = self._generate_immediate_actions(primary_issue)
@@ -1430,15 +1748,65 @@ class MustGatherAnalyzer:
                 relevant_snippets=[]
             )
 
-    def _identify_primary_issue(self) -> Tuple[str, str, List[str]]:
+    def _identify_primary_issue(self, buckets: Optional[Dict[str, Any]] = None) -> Tuple[str, str, List[str]]:
         """Identify the ONE primary root cause issue with evidence and impact
         
         Returns:
             Tuple of (primary_issue, evidence, impact_list)
         """
         import re
+
+        if buckets is None:
+            buckets = self._issue_buckets()
+        summary = buckets["summary"]
+        critical_log_events = buckets["critical_logs_events"]
+        non_critical_log_events = buckets["non_critical_logs_events"]
         
-        critical_issues = [i for i in self.issues if i.severity == "critical"]
+        if self._cluster_is_authoritatively_healthy():
+            if critical_log_events:
+                samples = critical_log_events[:3]
+                evidence_lines = [
+                    "ClusterVersion Available=True, ClusterOperators healthy, and all Nodes Ready in YAML.",
+                    f"Found {len(critical_log_events)} critical log/event signal(s):",
+                ]
+                for item in samples:
+                    evidence_lines.append(f"• [{item.category}] {item.description[:160]}")
+                return (
+                    f"Critical log/event signals detected ({len(critical_log_events)}) — core YAML still healthy",
+                    "\n".join(evidence_lines),
+                    [
+                        "Review critical logs/events below — may be transient or historical",
+                        "Correlate with active symptoms before treating as outage",
+                    ],
+                )
+
+            if non_critical_log_events:
+                log_count = sum(1 for i in non_critical_log_events if i.category == "logs")
+                event_count = sum(1 for i in non_critical_log_events if i.category == "events")
+                return (
+                    "Cluster core components healthy — review non-critical logs and events",
+                    (
+                        "ClusterVersion, ClusterOperators, and Nodes are healthy in must-gather YAML. "
+                        f"Scanned logs/events found {log_count} non-critical log entries and "
+                        f"{event_count} event warning(s) (e.g. FailedScheduling, routine ERROR lines). "
+                        "These are common on CI clusters and usually not actionable without matching symptoms."
+                    ),
+                    [
+                        "No critical control-plane failure detected",
+                        "Review non-critical logs/events only if users report active problems",
+                    ],
+                )
+
+            return (
+                "No critical issues detected - cluster appears stable",
+                (
+                    "ClusterVersion, ClusterOperators, and Node YAML in the must-gather bundle "
+                    "report healthy status. No significant log or event warnings found."
+                ),
+                ["Cluster management and workloads should be operational"],
+            )
+
+        critical_issues = buckets["other_critical"] + buckets["critical_logs_events"]
         
         if not critical_issues:
             warning_issues = [i for i in self.issues if i.severity == "warning"]
@@ -1546,7 +1914,8 @@ class MustGatherAnalyzer:
             
             api_issues = [issue for issue in critical_issues if 
                          any(keyword in issue.description.lower() for keyword in 
-                             ["server is currently unable", "unable to handle", "server doesn't have"])]
+                             ["server is currently unable", "unable to handle"])
+                         and "resource type" not in issue.description.lower()]
             
             if api_issues:
                 evidence_parts.append(f"**⚠️ API SERVER FAILURES ({len(api_issues)} failures detected):**")
@@ -1582,7 +1951,8 @@ class MustGatherAnalyzer:
         # PRIORITY 2: API server critical failures
         api_issues = [issue for issue in critical_issues if 
                      any(keyword in issue.description.lower() for keyword in 
-                         ["api server", "server is currently unable", "unable to handle the request", "server doesn't have a resource"])]
+                         ["api server", "server is currently unable", "unable to handle the request"])
+                     and "resource type" not in issue.description.lower()]
         
         if api_issues:
             api_issue = api_issues[0]
@@ -2038,37 +2408,61 @@ class MustGatherAnalyzer:
         
         return confidence, limitations
 
-    def _assess_cluster_health(self) -> ClusterHealth:
+    def _assess_cluster_health(self, buckets: Optional[Dict[str, Any]] = None) -> ClusterHealth:
         """Assess overall cluster health based on found issues"""
-        critical_issues = len([i for i in self.issues if i.severity == "critical"])
-        warning_issues = len([i for i in self.issues if i.severity == "warning"])
-        info_issues = len([i for i in self.issues if i.severity == "info"])
-        
-        total_issues = len(self.issues)
-        
-        # Determine overall status
-        if critical_issues > 5:
+        if buckets is None:
+            buckets = self._issue_buckets()
+        summary = buckets["summary"]
+        actionable = buckets["actionable"]
+        critical_log_events = summary["critical_logs_events"]
+        non_critical_log_events = summary["non_critical_logs_events"]
+        other_critical = summary["other_critical"]
+        warning_issues = summary["warnings"]
+
+        total_critical = critical_log_events + other_critical
+        total_issues = len(actionable)
+
+        if self._cluster_is_authoritatively_healthy():
+            if critical_log_events:
+                status = "degraded"
+                summary_text = (
+                    f"Core YAML healthy; {critical_log_events} critical log/event signal(s) need review"
+                )
+            elif non_critical_log_events:
+                status = "healthy"
+                log_n = sum(1 for i in buckets["non_critical_logs_events"] if i.category == "logs")
+                evt_n = sum(1 for i in buckets["non_critical_logs_events"] if i.category == "events")
+                summary_text = (
+                    "ClusterVersion, ClusterOperators, and Nodes are healthy. "
+                    f"Review non-critical logs/events if needed ({log_n} log entries, {evt_n} event warnings)."
+                )
+            else:
+                status = "healthy"
+                summary_text = "ClusterVersion, ClusterOperators, and Nodes are healthy in must-gather YAML"
+        elif total_critical > 5:
             status = "critical"
-            summary = f"Cluster has serious issues requiring immediate attention ({critical_issues} critical issues)"
-        elif critical_issues > 0:
-            status = "degraded" 
-            summary = f"Cluster has some critical issues that need attention ({critical_issues} critical, {warning_issues} warnings)"
+            summary_text = f"Cluster has serious issues requiring immediate attention ({total_critical} critical issues)"
+        elif total_critical > 0:
+            status = "degraded"
+            summary_text = (
+                f"Cluster has critical issues ({total_critical} critical, {warning_issues} warnings)"
+            )
         elif warning_issues > 10:
             status = "degraded"
-            summary = f"Cluster has multiple warnings that should be investigated ({warning_issues} warnings)"
+            summary_text = f"Cluster has multiple warnings that should be investigated ({warning_issues} warnings)"
         else:
             status = "healthy"
-            summary = f"Cluster appears healthy with minimal issues ({total_issues} total issues)"
+            summary_text = f"Cluster appears healthy with minimal issues ({total_issues} total issues)"
         
         return ClusterHealth(
             status=status,
-            node_count=0,  # Would extract from actual data
-            pod_count=0,   # Would extract from actual data 
-            namespace_count=0,  # Would extract from actual data
+            node_count=0,
+            pod_count=0,
+            namespace_count=0,
             issues_found=total_issues,
-            critical_issues=critical_issues,
-            warnings=warning_issues,
-            summary=summary
+            critical_issues=total_critical,
+            warnings=non_critical_log_events + warning_issues,
+            summary=summary_text
         )
 
     def _generate_report(self, health: ClusterHealth) -> str:

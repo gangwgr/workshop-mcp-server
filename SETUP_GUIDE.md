@@ -187,6 +187,18 @@ Optional settings:
 - `CURSOR_CWD` — local repo path for agent context
 - `CURSOR_ATTACH_MCP=true` — attach workshop MCP tools (must-gather, cluster debugger, RAG) to the agent
 
+**Web UI slash commands** — in Must-Gather / Cluster Debugger chat:
+- `/help` — list commands
+- `/status` — LLM mode and availability
+- `/mode cursor` or `/mode ollama` — switch provider
+- `/preset health_check` — Must-Gather preset
+- `/analyze` — run analysis on current page
+- `/debug apiserver pods crashing` — open Cluster Debugger
+- `/mustgather /path/to/bundle.tar` — open Must-Gather with path
+- `/mcp-config` — show MCP JSON for Cursor IDE
+
+See full list at `/cursor-setup` in the web UI.
+
 ---
 
 ## Connecting to Different Clients
@@ -195,7 +207,26 @@ Optional settings:
 
 Just run `python web_gui/app.py` and open http://localhost:5001. All features work standalone.
 
-### B) Cursor IDE
+### B) Cursor IDE (MCP + slash commands)
+
+**MCP config** — already in `.cursor/mcp.json` in this repo. Or copy from the **Cursor** page in the web UI (`/cursor-setup`).
+
+Restart Cursor after saving. Available MCP tools:
+- `analyze_mustgather_bundle` — offline bundle analysis
+- `debug_openshift_cluster` — live cluster debug
+- `ask_docs` / `index_docs` — knowledge base
+- `switch_llm_mode` — change LLM backend
+
+**Cursor slash commands** — type `/` in Cursor chat (from `.cursor/commands/`). Full list at `/cursor-setup` in the web UI. Examples:
+
+- `/help` — list all commands
+- `/debug-cluster` — investigate a live cluster issue
+- `/analyze-mustgather` — analyze an offline bundle path/URL
+- `/preset-health-check` / `/preset-degraded-cluster` / `/preset-network-issues`
+- `/analyze-etcd` — etcd-focused bundle analysis
+- `/triage-initial` / `/triage-apiserver` / `/triage-pod-crashloop`
+- `/ask-knowledge-base` / `/list-knowledge-base` / `/index-knowledge-base`
+- `/mode` / `/model` / `/status` / `/switch-llm`
 
 Add to your Cursor MCP settings (`~/.cursor/mcp.json` or workspace `.cursor/mcp.json`):
 

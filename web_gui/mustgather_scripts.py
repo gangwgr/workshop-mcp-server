@@ -169,6 +169,18 @@ def run_script(
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+    completeness = None
+    finder_path = _SCRIPTS_DIR / "mg_resource_finder.py"
+    if finder_path.is_file():
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("mg_resource_finder", finder_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            completeness = mod.bundle_completeness(Path(mg_path))
+        except Exception:
+            pass
+
     if not _has_mg_markers(mg_path):
         yaml_files = 0
         for root, _, files in os.walk(mg_path):
@@ -211,6 +223,7 @@ def run_script(
             "command": " ".join(cmd),
             "exit_code": proc.returncode,
             "output": output.strip(),
+            "bundle_completeness": completeness,
         }
     except subprocess.TimeoutExpired:
         return {"status": "error", "error": f"Script timed out after {timeout}s"}

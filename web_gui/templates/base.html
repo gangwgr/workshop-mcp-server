@@ -34,6 +34,7 @@
             <a href="/cluster-debugger" class="{% if request.path == '/cluster-debugger' %}active{% endif %}"><i class="fas fa-bug"></i> Cluster Debugger</a>
             <a href="/mustgather-analyzer" class="{% if request.path == '/mustgather-analyzer' %}active{% endif %}"><i class="fas fa-search-plus"></i> Must-Gather Analyzer</a>
             <a href="/knowledge-base" class="{% if request.path == '/knowledge-base' %}active{% endif %}"><i class="fas fa-brain"></i> Knowledge Base</a>
+            <a href="/cursor-setup" class="{% if request.path == '/cursor-setup' %}active{% endif %}"><i class="fas fa-bolt"></i> Cursor</a>
             <span class="separator">|</span>
             <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}"><i class="fas fa-cog"></i> Settings</a>
         </div>
@@ -62,6 +63,7 @@
     </footer>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="{{ url_for('static', filename='js/slash_commands.js') }}?v=2"></script>
     <script>
     var claudeModels = ['claude-sonnet-4-5@20250929', 'claude-haiku-4-5@20251001'];
     var DEFAULT_CURSOR_MODELS = ['composer-2.5', 'auto', 'claude-sonnet-4-5', 'claude-haiku-4-5'];

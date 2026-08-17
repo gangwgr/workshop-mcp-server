@@ -73,6 +73,183 @@ def settings_page():
     """Settings page for credentials and configuration."""
     return render_template('settings.html')
 
+
+@app.route('/cursor-setup')
+def cursor_setup_page():
+    """Cursor IDE + Agent integration guide and MCP config."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    from web_gui.slash_commands import get_mcp_config_snippet, list_commands, list_cursor_commands
+    return render_template(
+        'cursor_setup.html',
+        repo_root=repo_root,
+        mcp_config=get_mcp_config_snippet(repo_root),
+        slash_commands=list_commands(),
+        cursor_commands=list_cursor_commands(),
+    )
+
+
+@app.route('/api/commands', methods=['GET'])
+def api_commands_list():
+    """List available slash commands for the web UI."""
+    from web_gui.slash_commands import list_commands
+    scope = request.args.get('scope')
+    return jsonify({'status': 'success', 'commands': list_commands(scope)})
+
+
+@app.route('/api/commands/run', methods=['POST'])
+def api_commands_run():
+    """Execute a slash command (server-handled subset)."""
+    from web_gui.slash_commands import parse_slash_input, format_help, get_mcp_config_snippet
+
+    data = request.json or {}
+    parsed = parse_slash_input(data.get('input', ''))
+    scope = data.get('scope', 'global')
+    if not parsed:
+        return jsonify({'status': 'error', 'error': 'Not a slash command'}), 400
+
+    cmd = parsed['command']
+    args = parsed['args']
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+    if cmd == 'help':
+        return jsonify({
+            'status': 'success', 'handled': True, 'command': 'help',
+            'format': 'markdown', 'message': format_help(scope),
+        })
+
+    if cmd == 'status':
+        try:
+            from workshop_mcp_server.src.tools.llm_provider import get_config, get_availability_status
+            cfg = get_config()
+            avail = get_availability_status()
+        except ImportError:
+            return jsonify({'handled': True, 'message': 'LLM provider not available'})
+
+        msg = (
+            f"Mode: **{cfg['mode']}**\n"
+            f"Model: **{cfg['model']}**\n"
+            f"Available: **{avail['available']}**\n"
+        )
+        if not avail['available']:
+            msg += f"Reason: {avail.get('reason', '')}\nHint: {avail.get('hint', '')}\n"
+        msg += f"Cursor configured: {cfg.get('cursor_configured')}\n"
+        msg += f"Claude configured: {cfg.get('claude_configured')}\n"
+        msg += f"Cursor attach MCP: {cfg.get('cursor_attach_mcp')}"
+        return jsonify({'status': 'success', 'handled': True, 'command': 'status', 'format': 'markdown', 'message': msg})
+
+    if cmd == 'mode':
+        parts = args.split(None, 1)
+        new_mode = parts[0].lower() if parts else ''
+        new_model = parts[1].strip() if len(parts) > 1 else ''
+        if new_mode not in ('ollama', 'claude', 'cursor', 'template'):
+            return jsonify({'handled': True, 'message': 'Usage: /mode <ollama|claude|cursor|template> [model]'})
+
+        from workshop_mcp_server.src.tools.llm_provider import set_mode, set_model, get_config, get_availability_status
+        set_mode(new_mode)
+        if new_model:
+            set_model(new_model)
+        cfg = get_config()
+        avail = get_availability_status()
+        return jsonify({
+            'status': 'success', 'handled': True, 'command': 'mode', 'action': 'switch_mode',
+            'mode': cfg['mode'], 'model': cfg['model'],
+            'llm_available': avail.get('available'),
+            'message': f"Switched to **{cfg['mode']}** ({cfg['model']})",
+        })
+
+    if cmd == 'model':
+        if not args:
+            return jsonify({'handled': True, 'message': 'Usage: /model <model-name>'})
+        from workshop_mcp_server.src.tools.llm_provider import set_model, get_config
+        set_model(args)
+        cfg = get_config()
+        return jsonify({
+            'status': 'success', 'handled': True, 'command': 'model', 'action': 'switch_mode',
+            'mode': cfg['mode'], 'model': cfg['model'],
+            'message': f"Model set to **{cfg['model']}**",
+        })
+
+    if cmd == 'cursor_config':
+        msg = (
+            "**Cursor Agent setup (Web UI)**\n\n"
+            "1. Get API key: https://cursor.com/dashboard/integrations\n"
+            "2. Settings → Cursor Agent → `CURSOR_API_KEY`\n"
+            "3. Set model (default: `composer-2.5`)\n"
+            "4. Top nav → **Cursor Agent** mode\n\n"
+            f"CURSOR_ATTACH_MCP: {os.environ.get('CURSOR_ATTACH_MCP', 'true')}\n"
+            f"CURSOR_CWD: {os.environ.get('CURSOR_CWD') or repo_root}\n"
+            f"API key configured: {bool(os.environ.get('CURSOR_API_KEY'))}"
+        )
+        return jsonify({'status': 'success', 'handled': True, 'format': 'markdown', 'message': msg})
+
+    if cmd == 'mcp_config':
+        snippet = get_mcp_config_snippet(repo_root)
+        msg = (
+            "**Cursor IDE MCP config** (`.cursor/mcp.json` or `~/.cursor/mcp.json`):\n\n"
+            f"```json\n{snippet}\n```\n\n"
+            "Restart Cursor after saving. Tools: analyze_mustgather_bundle, debug_openshift_cluster, ask_docs, etc."
+        )
+        return jsonify({'status': 'success', 'handled': True, 'format': 'markdown', 'message': msg})
+
+    if cmd == 'ask_kb':
+        if not args:
+            return jsonify({'handled': True, 'message': 'Usage: /ask-kb <question>'})
+        try:
+            from workshop_mcp_server.src.tools.rag.rag_tool import ask_docs
+            result = ask_docs(args)
+        except ImportError:
+            return jsonify({'handled': True, 'message': 'Knowledge base (RAG) not available'})
+        if result.get('status') == 'error':
+            return jsonify({'handled': True, 'message': result.get('error', 'Query failed') + (f"\n{result.get('hint', '')}" if result.get('hint') else '')})
+        return jsonify({
+            'status': 'success', 'handled': True, 'command': 'ask_kb',
+            'format': 'markdown', 'message': result.get('answer', 'No answer'),
+        })
+
+    if cmd == 'list_kb':
+        try:
+            from workshop_mcp_server.src.tools.rag.rag_tool import list_knowledge_bases
+            result = list_knowledge_bases()
+        except ImportError:
+            return jsonify({'handled': True, 'message': 'Knowledge base (RAG) not available'})
+        collections = result.get('collections') or []
+        if not collections:
+            msg = "No indexed collections yet. Use `/index-kb <folder-path>` to add documents."
+        else:
+            lines = ["**Knowledge base collections**", ""]
+            for col in collections:
+                name = col.get('name') or col.get('collection') or 'unknown'
+                count = col.get('count') or col.get('document_count') or 0
+                lines.append(f"- `{name}` — {count} documents")
+            msg = "\n".join(lines)
+        return jsonify({'status': 'success', 'handled': True, 'format': 'markdown', 'message': msg})
+
+    if cmd == 'index_kb':
+        parts = args.split(None, 1)
+        folder = parts[0] if parts else ''
+        collection = parts[1].strip() if len(parts) > 1 else 'default'
+        if not folder:
+            return jsonify({'handled': True, 'message': 'Usage: /index-kb <folder-path> [collection-name]'})
+        if not os.path.isdir(folder):
+            return jsonify({'handled': True, 'message': f"Folder not found: {folder}"})
+        try:
+            from workshop_mcp_server.src.tools.rag.rag_tool import index_docs
+            result = index_docs(folder, collection)
+        except ImportError:
+            return jsonify({'handled': True, 'message': 'Knowledge base (RAG) not available'})
+        if result.get('status') == 'error':
+            return jsonify({'handled': True, 'message': result.get('error', 'Indexing failed')})
+        msg = (
+            f"Indexed **{result.get('chunks_indexed', result.get('documents_indexed', '?'))}** chunks "
+            f"into collection `{collection}` from `{folder}`"
+        )
+        return jsonify({'status': 'success', 'handled': True, 'format': 'markdown', 'message': msg})
+
+    return jsonify({
+        'handled': False,
+        'message': f"Unknown command `/{cmd}`. Try /help",
+    })
+
 @app.route('/api/settings', methods=['GET'])
 def api_settings_get():
     """Get current settings (masked secrets)."""
@@ -317,7 +494,7 @@ finally:
         try:
             proc_result = _sp.run(
                 [sys.executable, '-c', script],
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, text=True, timeout=300,
                 cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             )
             if proc_result.returncode == 0 and proc_result.stdout.strip():
@@ -326,7 +503,7 @@ finally:
                 error_msg = proc_result.stderr.strip()[-500:] if proc_result.stderr else 'Unknown error'
                 result = {"status": "error", "error": f"Analysis failed: {error_msg}"}
         except _sp.TimeoutExpired:
-            result = {"status": "error", "error": "Analysis timed out (180s). Try unchecking Deep log scanning or use a smaller bundle."}
+            result = {"status": "error", "error": "Analysis timed out (300s). Try unchecking Deep log scanning or use a smaller bundle."}
 
         return jsonify(result)
     except Exception as e:
@@ -424,7 +601,7 @@ Provide root-cause analysis:"""
             err = meta.get("error") or status.get("reason") or "LLM not available"
             hint = meta.get("hint") or status.get("hint") or ""
             message = f"{err} {hint}".strip()
-            return jsonify({'status': 'error', 'error': message}), 500
+            return jsonify({'status': 'error', 'error': message, 'llm_meta': meta})
 
         return jsonify({
             'status': 'success',

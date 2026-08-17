@@ -155,7 +155,9 @@
                                         <li>What is the root cause of the main issue?</li>
                                         <li>How do I fix [specific issue]?</li>
                                         <li>What should I prioritize first?</li>
-                                        <li>Explain [component/error] in more detail</li>
+                                        <li>Type <code>/help</code> for slash commands</li>
+                                        <li><code>/preset health_check</code> — select preset</li>
+                                        <li><code>/mode cursor</code> — switch to Cursor Agent</li>
                                     </ul>
                                 </div>
                             </div>
@@ -163,7 +165,7 @@
                     </div>
 
                     <form id="chatForm" style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="chatInput" placeholder="Ask a question about the analysis..."
+                        <input type="text" id="chatInput" placeholder="Ask a question or /help for commands..."
                                style="flex: 1; padding: 0.75rem; border: 1px solid #cbd5e0; border-radius: 0.375rem; font-size: 0.875rem;" required>
                         <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
                             <i class="fas fa-paper-plane"></i> Send
@@ -192,6 +194,39 @@ $(document).ready(function() {
     window.scriptCatalog = [];
 
     $('.btn-preset[data-preset="health_check"]').css({background:'#805ad5', color:'white'});
+
+    // Prefill from /mustgather <url> slash command
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('bundle')) {
+        $('#bundle_path').val(decodeURIComponent(urlParams.get('bundle')));
+    }
+
+    // Slash commands (/help, /mode, /preset, /analyze, ...)
+    if (window.MCPSlashCommands) {
+        MCPSlashCommands.setContext({
+            scope: 'mustgather',
+            onAnalyze: function() { $('#analyzeForm').trigger('submit'); },
+            onPreset: function(name) {
+                $('.btn-preset').css({background:'', color:''});
+                $('.btn-preset[data-preset="' + name + '"]').css({background:'#805ad5', color:'white'});
+                $('#selected_preset').val(name);
+            },
+            onScript: function(scriptId) {
+                var bundle = $('#bundle_path').val().trim();
+                if (!bundle) {
+                    return { handled: true, message: 'Set a bundle path or URL first, then run `/script ' + scriptId + '` again.' };
+                }
+                if (!$('#script_select option[value="' + scriptId + '"]').length) {
+                    return { handled: true, message: 'Unknown script `' + scriptId + '`. Try: clusterversion, clusteroperators, pods, nodes, etcd, network, events.' };
+                }
+                $('#script_select').val(scriptId).trigger('change');
+                $('#analyzeForm').trigger('submit');
+                return { handled: true };
+            },
+            onClear: function() { $('#chatMessages').empty(); }
+        });
+        MCPSlashCommands.interceptChatSubmit('#chatForm', '#chatInput', '#chatMessages');
+    }
 
     // Load script catalog
     $.get('/api/mustgather-scripts', function(data) {
@@ -715,7 +750,7 @@ $(document).ready(function() {
         displayFocusedScripts(scriptResult);
 
         // Display cluster health summary
-        displayHealthSummary(result.cluster_health);
+        displayHealthSummary(result.cluster_health, result.log_event_summary);
 
         if (result.deep_log_scan) {
             const scanned = result.scanned_files || 0;
@@ -797,13 +832,30 @@ $(document).ready(function() {
         return '<p>' + html + '</p>';
     }
 
-    function displayHealthSummary(health) {
+    function displayHealthSummary(health, logEventSummary) {
         if (!health) return;
 
         const statusColor = health.status === 'healthy' ? '#48bb78' :
                           health.status === 'degraded' ? '#ed8936' : '#f56565';
         const statusIcon = health.status === 'healthy' ? '✅' :
                          health.status === 'degraded' ? '⚠️' : '🚨';
+
+        let logEventHtml = '';
+        if (logEventSummary) {
+            const crit = logEventSummary.critical_logs_events || 0;
+            const nonCrit = logEventSummary.non_critical_logs_events || 0;
+            const noise = logEventSummary.noise_suppressed || 0;
+            logEventHtml = `
+                <div style="margin-top: 0.75rem; padding: 0.75rem; background: #edf2f7; border-radius: 0.5rem; font-size: 0.9rem;">
+                    <strong>Logs &amp; events:</strong>
+                    ${crit > 0
+                        ? `<span style="color:#f56565;"> ${crit} critical — review below</span>`
+                        : ' no critical signals'}
+                    · ${nonCrit} non-critical (review if symptoms match)
+                    · ${noise} gather-noise entries filtered
+                </div>
+            `;
+        }
 
         let html = `
             <div class="summary-card" style="border-left: 4px solid ${statusColor};">
@@ -815,12 +867,13 @@ $(document).ready(function() {
                     </div>
                     <div>
                         <p style="margin: 0.25rem 0;"><strong>Critical:</strong> <span style="color: #f56565;">🚨 ${health.critical_issues || 0}</span></p>
-                        <p style="margin: 0.25rem 0;"><strong>Warnings:</strong> <span style="color: #ed8936;">⚠️ ${health.warnings || 0}</span></p>
+                        <p style="margin: 0.25rem 0;"><strong>Non-critical:</strong> <span style="color: #ed8936;">⚠️ ${health.warnings || 0}</span></p>
                     </div>
                 </div>
                 <div style="margin-top: 1rem; padding: 0.75rem; background: #f7fafc; border-radius: 0.5rem;">
                     <p style="margin: 0;"><strong>Summary:</strong> ${health.summary || 'N/A'}</p>
                 </div>
+                ${logEventHtml}
             </div>
         `;
 
@@ -1152,6 +1205,8 @@ $(document).ready(function() {
 
         const question = $('#chatInput').val().trim();
         if (!question) return;
+
+        if (window.MCPSlashCommands && MCPSlashCommands.isSlashCommand(question)) return;
 
         if (!window.analysisContext) {
             alert('Please run an analysis first before asking questions.');

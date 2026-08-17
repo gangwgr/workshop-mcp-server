@@ -12,6 +12,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from mg_resource_finder import (
+    PARTIAL_BUNDLE_HINT,
+    FALLBACK_HINT,
+    bundle_completeness,
+    find_node_docs,
+    infer_nodes_from_layout,
+)
+
 
 def parse_node(file_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a single node YAML file."""
@@ -149,27 +157,30 @@ def analyze_nodes(must_gather_path: str, problems_only: bool = False):
     """Analyze all nodes in a must-gather directory."""
     base_path = Path(must_gather_path)
 
-    # Find all node YAML files
-    possible_patterns = [
-        "cluster-scoped-resources/core/nodes/*.yaml",
-        "*/cluster-scoped-resources/core/nodes/*.yaml",
-    ]
-
-    nodes = []
-
-    for pattern in possible_patterns:
-        for node_file in base_path.glob(pattern):
-            # Skip the nodes.yaml file that contains all nodes
-            if node_file.name == 'nodes.yaml':
-                continue
-
-            node = parse_node(node_file)
-            if node:
-                node_status = get_node_status(node)
-                nodes.append(node_status)
+    node_docs = find_node_docs(base_path)
+    nodes = [get_node_status(node) for node in node_docs]
 
     if not nodes:
+        inferred = infer_nodes_from_layout(base_path)
+        if inferred:
+            completeness = bundle_completeness(base_path)
+            print("⚠️  Node YAML not in bundle — showing inferred nodes from bundle layout:\n")
+            print(f"{'NAME':<50} {'STATUS':<30} {'ROLES':<20} {'SOURCE'}")
+            for node in inferred:
+                name = node['name'][:50]
+                status = node['status'][:30]
+                roles = node['roles'][:20]
+                source = node.get('source', '')
+                print(f"{name:<50} {status:<30} {roles:<20} {source}")
+            if completeness.get("hint"):
+                print(f"\n{completeness['hint']}")
+            return 0
+
+        completeness = bundle_completeness(base_path)
         print("No resources found.")
+        if completeness["partial"]:
+            print(f"\n⚠️  Partial must-gather bundle (missing: {', '.join(completeness['missing'])}).")
+            print(PARTIAL_BUNDLE_HINT)
         return 1
 
     # Remove duplicates

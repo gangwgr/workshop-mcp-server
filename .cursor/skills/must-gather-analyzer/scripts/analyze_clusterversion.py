@@ -11,6 +11,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
 
+from mg_resource_finder import (
+    PARTIAL_BUNDLE_HINT,
+    FALLBACK_HINT,
+    bundle_completeness,
+    find_clusterversion_doc,
+)
+
 
 def parse_clusterversion(file_path: Path) -> Optional[Dict[str, Any]]:
     """Parse the clusterversion YAML file."""
@@ -212,24 +219,20 @@ def analyze_clusterversion(must_gather_path: str):
     """Analyze ClusterVersion in a must-gather directory."""
     base_path = Path(must_gather_path)
 
-    # Find ClusterVersion file
-    possible_patterns = [
-        "cluster-scoped-resources/config.openshift.io/clusterversions/version.yaml",
-        "*/cluster-scoped-resources/config.openshift.io/clusterversions/version.yaml",
-    ]
-
-    cv = None
-    for pattern in possible_patterns:
-        for cv_file in base_path.glob(pattern):
-            cv = parse_clusterversion(cv_file)
-            if cv:
-                break
-        if cv:
-            break
+    cv = find_clusterversion_doc(base_path)
 
     if not cv:
+        completeness = bundle_completeness(base_path)
         print("No ClusterVersion found.")
+        if completeness.get("modern"):
+            print(f"\nℹ️  {FALLBACK_HINT}")
+        elif completeness["partial"]:
+            print(f"\n⚠️  Partial must-gather bundle (missing: {', '.join(completeness['missing'])}).")
+            print(PARTIAL_BUNDLE_HINT)
         return 1
+
+    if cv.get("_source") == "cvo_logs":
+        print(f"ℹ️  ClusterVersion parsed from CVO pod logs (modern must-gather format).\n")
 
     # Format and print table
     cv_info = format_clusterversion(cv)

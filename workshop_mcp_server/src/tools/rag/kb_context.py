@@ -40,8 +40,11 @@ def get_kb_context(
 
     try:
         from workshop_mcp_server.src.tools.rag.doc_ingester import (
-            get_chroma_client, _embed_texts
+            get_chroma_client, _embed_texts, ollama_embeddings_available
         )
+
+        if not ollama_embeddings_available():
+            return ""
 
         client = get_chroma_client()
         all_collections = client.list_collections()
