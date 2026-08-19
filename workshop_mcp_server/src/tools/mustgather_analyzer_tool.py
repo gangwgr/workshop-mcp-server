@@ -2546,6 +2546,33 @@ class MustGatherAnalyzer:
         
         return formatted_report
 
+# Load DNS resolution cache from config file
+def _load_dns_cache():
+    """Load DNS resolution cache from config file."""
+    import json
+    # Try multiple possible paths
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'dns_cache.json'),
+        os.path.join(os.path.dirname(__file__), '../../config/dns_cache.json'),
+        '/home/yshanmug/Documents/techgenie/workshop-mcp-server/workshop_mcp_server/config/dns_cache.json'
+    ]
+    
+    for config_path in possible_paths:
+        try:
+            config_path = os.path.abspath(config_path)
+            if os.path.exists(config_path):
+                logger.info(f"Loading DNS cache from: {config_path}")
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.debug(f"Could not load DNS cache from {config_path}: {e}")
+            continue
+    
+    logger.warning("DNS cache config file not found in any expected location")
+    return {}
+
+DNS_RESOLUTION_CACHE = _load_dns_cache()
+
 # MCP Tool Functions
 
 async def analyze_mustgather_bundle(
@@ -2584,13 +2611,75 @@ async def analyze_mustgather_bundle(
                 "message": "Please provide a valid path to the must-gather bundle"
             }
 
-        logger.info(f"Starting must-gather analysis for: {bundle_path}")
+        # Handle URL downloads with DNS bypass for sandboxed environments
+        local_bundle_path = bundle_path
+        if bundle_path.startswith(('http://', 'https://')):
+            logger.info(f"Downloading must-gather bundle from URL: {bundle_path}")
+            import urllib.parse
+            
+            # Parse URL to get hostname and port
+            parsed = urllib.parse.urlparse(bundle_path)
+            hostname = parsed.hostname
+            port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+            
+            try:
+                # Create temporary file for download
+                import tempfile
+                import subprocess
+                tmpdir = tempfile.mkdtemp()
+                filename = os.path.basename(bundle_path.split('?')[0]) or 'must-gather.tar'
+                local_bundle_path = os.path.join(tmpdir, filename)
+                
+                # Try DNS bypass if we have cached IPs
+                downloaded = False
+                if hostname in DNS_RESOLUTION_CACHE and str(port) in DNS_RESOLUTION_CACHE[hostname]:
+                    resolved_ips = DNS_RESOLUTION_CACHE[hostname][str(port)]
+                    logger.info(f"Using DNS cache for {hostname}: {resolved_ips}")
+                    
+                    for ip in resolved_ips:
+                        try:
+                            cmd = [
+                                'curl', 
+                                '-L', 
+                                '-o', local_bundle_path, 
+                                '--resolve', f'{hostname}:{port}:{ip}',
+                                bundle_path
+                            ]
+                            
+                            logger.info(f"Downloading via DNS bypass with IP: {ip}")
+                            result = subprocess.run(cmd, capture_output=True, timeout=300, text=True)
+                            
+                            if result.returncode == 0 and os.path.exists(local_bundle_path):
+                                logger.info(f"✅ Download successful: {os.path.getsize(local_bundle_path)} bytes")
+                                downloaded = True
+                                break
+                            else:
+                                logger.warning(f"Download failed with IP {ip}: {result.stderr[:200]}")
+                                continue
+                                
+                        except Exception as e:
+                            logger.warning(f"Download attempt with IP {ip} failed: {e}")
+                            continue
+                
+                if not downloaded:
+                    raise Exception("Download failed - no working IP addresses in DNS cache")
+                    
+            except Exception as e:
+                logger.error(f"Failed to download from URL: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to download from URL: {str(e)}",
+                    "url": bundle_path,
+                    "message": "Could not download must-gather bundle"
+                }
+
+        logger.info(f"Starting must-gather analysis for: {local_bundle_path}")
         
         # Create analyzer instance
         analyzer = MustGatherAnalyzer()
         
         # Perform analysis
-        results = analyzer.analyze_bundle(bundle_path, detailed_analysis=detailed_analysis)
+        results = analyzer.analyze_bundle(local_bundle_path, detailed_analysis=detailed_analysis)
         
         # Format the SRE diagnostic report for presentation
         if results["status"] == "success" and "sre_diagnostic_report" in results:

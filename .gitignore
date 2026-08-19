@@ -186,3 +186,7 @@ build.log
 
 # RAG vector store (runtime data, regenerated on indexing)
 vector_store/
+
+# Configuration files with sensitive data (DNS IPs, credentials, etc.)
+workshop_mcp_server/config/dns_cache.json
+
