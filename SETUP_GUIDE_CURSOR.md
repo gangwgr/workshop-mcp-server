@@ -7,10 +7,15 @@ A focused guide to connect the Workshop MCP Server to Cursor IDE after installat
 ## Prerequisites
 
 Before following this guide, ensure:
+- ✅ gcc postgresql-devel python3-devel for linux systems
+- ✅ brew install postgresql for macos systems
+- ✅ Cursor IDE is installed and running
 - ✅ Workshop MCP Server is cloned
-- ✅ Python 3.14 is installed
-- ✅ Dependencies are installed: `python3.14 -m pip install --user -e .`
-- ✅ MCP server works in terminal: `timeout 5 python3.14 workshop_mcp_server/src/main.py`
+- ✅ Python 3.12 is installed
+- ✅ Dependencies are installed: `python3.12 -m pip install --user -e .`
+- ✅ if not worked, used virtual environment: `python3.12 -m venv venv && source venv/bin/activate`
+- ✅ Then used `pip install -e .` to install the dependencies in the virtual environment
+- ✅ MCP server works in terminal: `timeout 5 python3.12 workshop_mcp_server/src/main.py`
 - ✅ Cursor IDE is installed
 
 ---
@@ -67,7 +72,7 @@ If `~/.cursor/mcp.json` doesn't exist, create it with this content:
 {
   "mcpServers": {
     "workshop-mcp-server": {
-      "command": "python3.14",
+      "command": "python3.12",
       "args": [
         "/home/USERNAME/Documents/workshop-mcp-server/workshop_mcp_server/src/main.py"
       ],
@@ -81,6 +86,22 @@ If `~/.cursor/mcp.json` doesn't exist, create it with this content:
     }
   }
 }
+
+
+For virtual environment:
+"workshop-mcp-server": {
+      "command": "/home/USERNAME/Documents/workshop-mcp-server/venv/bin/python3.12",
+      "args": [
+        "home/USERNAME/Documents/workshop-mcp-server/workshop_mcp_server/src/main.py"
+      ],
+      "cwd": "/home/USERNAME/Documents/workshop-mcp-server",
+      "env": {
+        "PYTHONPATH": "/home/USERNAME/Documents/workshop-mcp-server"
+      },
+      "description": "Debugging agent for live cluster and airgapped cluster with must-gather analysis, cluster health assessment, and intelligent issue diagnosis",
+      "version": "1.0.0",
+      "author": "Workshop MCP Team"
+    }
 ```
 
 **If `mcp.json` already exists:**
@@ -105,7 +126,7 @@ whoami
 {
   "mcpServers": {
     "workshop-mcp-server": {
-      "command": "python3.14",
+      "command": "python3.12",
       "args": [
         "/home/xxxxx/Documents/workshop-mcp-server/workshop_mcp_server/src/main.py"
       ],
@@ -129,7 +150,7 @@ Make sure the JSON is valid:
 
 ```bash
 # Test JSON syntax
-python3.14 -c "
+python3.12 -c "
 import json
 try:
     with open('~/.cursor/mcp.json'.replace('~', os.path.expanduser('~'))) as f:
@@ -150,9 +171,9 @@ Or use an online JSON validator:
 Make sure all paths in mcp.json actually exist:
 
 ```bash
-# Check if Python 3.14 exists
-python3.14 --version
-# Expected: Python 3.14.x
+# Check if Python 3.12 exists
+python3.12 --version
+# Expected: Python 3.12.x
 
 # Check if main.py exists
 ls -la /home/USERNAME/Documents/workshop-mcp-server/workshop_mcp_server/src/main.py
@@ -234,15 +255,15 @@ cat ~/.cursor/mcp.json
 # Should output valid JSON, not "No such file"
 ```
 
-**Check 2: Verify Python 3.14 works**
+**Check 2: Verify Python 3.12 works**
 ```bash
-python3.14 -c "print('✅ Python works')"
+python3.12 -c "print('✅ Python works')"
 ```
 
 **Check 3: Test MCP server directly**
 ```bash
 cd ~/Documents/techgenie/workshop-mcp-server
-timeout 5 python3.14 workshop_mcp_server/src/main.py
+timeout 5 python3.12 workshop_mcp_server/src/main.py
 # Should show FastMCP banner and "Starting MCP server"
 ```
 
@@ -277,27 +298,27 @@ ls /home/USERNAME/Documents/techgenie/workshop-mcp-server/
 cat ~/.cursor/mcp.json
 
 # Validate with Python
-python3.14 -c "import json; json.load(open(open('~/.cursor/mcp.json')))"
+python3.12 -c "import json; json.load(open(open('~/.cursor/mcp.json')))"
 ```
 
 ---
 
-### Issue: "python3.14: command not found"
+### Issue: "python3.12: command not found"
 
 **Solution:**
 ```bash
-# Check if Python 3.14 is installed
-python3.14 --version
+# Check if Python 3.12 is installed
+python3.12 --version
 
 # If not found, install it:
 # Ubuntu/Debian:
-sudo apt install python3.14
+sudo apt install python3.12
 
 # Fedora:
-sudo dnf install python3.14
+sudo dnf install python3.12
 
 # macOS:
-brew install python@3.14
+brew install python@3.12
 ```
 
 ---
@@ -308,10 +329,10 @@ brew install python@3.14
 ```bash
 # Reinstall the project
 cd ~/Documents/workshop-mcp-server
-python3.14 -m pip install --user -e .
+python3.12 -m pip install --user -e .
 
 # Verify installation
-python3.14 -c "import workshop_mcp_server; print('✅ Installed')"
+python3.12 -c "import workshop_mcp_server; print('✅ Installed')"
 ```
 
 ---
@@ -321,11 +342,11 @@ python3.14 -c "import workshop_mcp_server; print('✅ Installed')"
 **Solution:**
 ```bash
 # Fix ~/.local permissions
-chmod -R u+w ~/.local/lib/python3.14
+chmod -R u+w ~/.local/lib/python3.12
 chmod -R u+w ~/.local/bin
 
 # Reinstall
-python3.14 -m pip install --user --force-reinstall -e .
+python3.12 -m pip install --user --force-reinstall -e .
 ```
 
 ---
@@ -342,7 +363,7 @@ python3.14 -m pip install --user --force-reinstall -e .
 3. Look for error messages that tell you what's wrong
 
 4. Common errors:
-   - `ModuleNotFoundError` → Reinstall with `python3.14 -m pip install --user -e .`
+   - `ModuleNotFoundError` → Reinstall with `python3.12 -m pip install --user -e .`
    - `FileNotFoundError` → Check paths in mcp.json
    - `ConnectionError` → Restart Cursor and check Python version
 
@@ -358,7 +379,7 @@ If using Cursor Settings GUI (instead of editing mcp.json manually):
 4. Click "Add Server"
 5. Fill in:
    - **Name:** `workshop-mcp-server`
-   - **Command:** `python3.14`
+   - **Command:** `python3.12`
    - **Args:** `/home/USERNAME/Documents/workshop-mcp-server/workshop_mcp_server/src/main.py`
    - **CWD:** `/home/USERNAME/Documents/workshop-mcp-server`
    - **Environment:** `PYTHONPATH=/home/USERNAME/Documents/workshop-mcp-server`
@@ -370,7 +391,7 @@ If using Cursor Settings GUI (instead of editing mcp.json manually):
 | Item | Value |
 |------|-------|
 | **Config File** | `~/.cursor/mcp.json` |
-| **Python Command** | `python3.14` |
+| **Python Command** | `python3.12` |
 | **Main Script** | `workshop_mcp_server/src/main.py` |
 | **Project Path** | `/home/USERNAME/Documents/workshop-mcp-server` |
 | **Status Check** | Bottom status bar of Cursor |
@@ -384,8 +405,8 @@ Before considering setup complete, verify all of these:
 
 - [ ] `~/.cursor/mcp.json` exists and is valid JSON
 - [ ] All paths in mcp.json exist on your system
-- [ ] `python3.14 --version` works in terminal
-- [ ] `timeout 5 python3.14 workshop_mcp_server/src/main.py` shows FastMCP banner
+- [ ] `python3.12 --version` works in terminal
+- [ ] `timeout 5 python3.12 workshop_mcp_server/src/main.py` shows FastMCP banner
 - [ ] Cursor status bar shows `workshop-mcp-server: Connected` (green dot)
 - [ ] `@workshop-mcp-server` appears in Cursor chat with @ symbol
 - [ ] You can see tool names when clicking on workshop-mcp-server
